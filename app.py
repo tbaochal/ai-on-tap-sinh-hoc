@@ -18,6 +18,11 @@ from datetime import datetime, timezone, timedelta
 from google import genai
 from google.genai import types
 
+try:
+    from supabase import create_client
+except Exception:
+    create_client = None
+
 from muc_do_nhan_thuc import DONG_TU_MUC_DO, xac_dinh_muc_do
 
 
@@ -69,6 +74,321 @@ except Exception:
     APP_MODE = "full"
 if APP_MODE not in {"full", "student", "teacher"}:
     APP_MODE = "full"
+
+
+# ==========================================================
+# DỮ LIỆU DÙNG CHUNG: SUPABASE LÀ NGUỒN CHÍNH, JSON LÀ DỰ PHÒNG
+# ==========================================================
+# Secret key chỉ được đọc ở phía server từ st.secrets.
+# Không đưa key vào mã nguồn và không hiển thị ra giao diện.
+_SUPABASE_CLIENT = None
+_SUPABASE_TRIED = False
+
+
+def _supabase_client():
+    global _SUPABASE_CLIENT, _SUPABASE_TRIED
+
+    if _SUPABASE_TRIED:
+        return _SUPABASE_CLIENT
+
+    _SUPABASE_TRIED = True
+
+    if create_client is None:
+        return None
+
+    try:
+        url = str(st.secrets.get("SUPABASE_URL", "") or "").strip()
+        key = str(st.secrets.get("SUPABASE_SECRET_KEY", "") or "").strip()
+        if not url or not key:
+            return None
+        _SUPABASE_CLIENT = create_client(url, key)
+    except Exception:
+        _SUPABASE_CLIENT = None
+
+    return _SUPABASE_CLIENT
+
+
+def _doc_json_local(path, default=None):
+    try:
+        if not os.path.exists(path) or os.path.getsize(path) == 0:
+            return default
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def _luu_json_local(path, data):
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+
+def _document_key(path):
+    return os.path.basename(str(path or "")).strip()
+
+
+def _doc_document_shared(path, default=None):
+    """Đọc app_documents trên Supabase; lỗi mạng thì quay về JSON local."""
+    client_sb = _supabase_client()
+    key = _document_key(path)
+
+    if client_sb is not None and key:
+        try:
+            res = (
+                client_sb.table("app_documents")
+                .select("data")
+                .eq("document_key", key)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(res, "data", None) or []
+            if rows:
+                data = rows[0].get("data")
+                if data is not None:
+                    return data
+        except Exception:
+            pass
+
+    return _doc_json_local(path, default)
+
+
+def _luu_document_shared(path, data):
+    """Ghi Supabase và đồng thời giữ JSON local làm bản dự phòng."""
+    local_ok = _luu_json_local(path, data)
+    cloud_ok = False
+    client_sb = _supabase_client()
+    key = _document_key(path)
+
+    if client_sb is not None and key:
+        try:
+            client_sb.table("app_documents").upsert(
+                {
+                    "document_key": key,
+                    "data": data,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
+                on_conflict="document_key",
+            ).execute()
+            cloud_ok = True
+        except Exception:
+            cloud_ok = False
+
+    return cloud_ok or local_ok
+
+
+def _doc_students_shared():
+    client_sb = _supabase_client()
+    if client_sb is not None:
+        try:
+            res = (
+                client_sb.table("students")
+                .select("student_id,full_name,class_name,active,data")
+                .order("student_id")
+                .execute()
+            )
+            rows = getattr(res, "data", None) or []
+            if rows:
+                ds = []
+                for row in rows:
+                    item = dict(row.get("data") or {})
+                    item.setdefault("ma_hoc_sinh", row.get("student_id", ""))
+                    item.setdefault("ho_ten", row.get("full_name", ""))
+                    item.setdefault("lop", row.get("class_name", ""))
+                    if not str(item.get("trang_thai", "")).strip():
+                        item["trang_thai"] = (
+                            "Đang học" if row.get("active", True) else "Tạm khóa"
+                        )
+                    ds.append(item)
+                return ds
+        except Exception:
+            pass
+
+    data = _doc_json_local(STUDENT_PATH, [])
+    return data if isinstance(data, list) else []
+
+
+def _luu_students_shared(ds):
+    ds = list(ds or [])
+    local_ok = _luu_json_local(STUDENT_PATH, ds)
+    cloud_ok = False
+    client_sb = _supabase_client()
+
+    if client_sb is not None:
+        try:
+            rows = []
+            now_iso = datetime.now(timezone.utc).isoformat()
+            for hs in ds:
+                if not isinstance(hs, dict):
+                    continue
+                sid = str(
+                    hs.get("ma_hoc_sinh")
+                    or hs.get("hoc_sinh_id")
+                    or hs.get("student_id")
+                    or ""
+                ).strip()
+                if not sid:
+                    continue
+                trang_thai = str(hs.get("trang_thai", "Đang học") or "").strip().casefold()
+                active = trang_thai not in {
+                    "tạm khóa", "tam khoa", "nghỉ học", "nghi hoc",
+                    "đã nghỉ", "da nghi", "inactive"
+                }
+                rows.append({
+                    "student_id": sid,
+                    "full_name": str(hs.get("ho_ten", "") or "").strip(),
+                    "class_name": str(hs.get("lop", "") or "").strip(),
+                    "active": active,
+                    "data": hs,
+                    "updated_at": now_iso,
+                })
+
+            for i in range(0, len(rows), 200):
+                batch = rows[i:i + 200]
+                if batch:
+                    client_sb.table("students").upsert(
+                        batch, on_conflict="student_id"
+                    ).execute()
+            cloud_ok = True
+        except Exception:
+            cloud_ok = False
+
+    return cloud_ok or local_ok
+
+
+def _xoa_student_shared(student_id):
+    """Chỉ xóa hồ sơ trong bảng students; lịch sử làm bài được giữ nguyên."""
+    sid = str(student_id or "").strip()
+    if not sid:
+        return False
+    client_sb = _supabase_client()
+    if client_sb is None:
+        return False
+    try:
+        client_sb.table("students").delete().eq("student_id", sid).execute()
+        return True
+    except Exception:
+        return False
+
+
+def _doc_attempts_shared():
+    client_sb = _supabase_client()
+    if client_sb is not None:
+        try:
+            res = (
+                client_sb.table("student_attempts")
+                .select("id,submitted_at,data")
+                .order("submitted_at")
+                .execute()
+            )
+            rows = getattr(res, "data", None) or []
+            if rows:
+                ds = []
+                for row in rows:
+                    item = dict(row.get("data") or {})
+                    # Dữ liệu cũ khi di chuyển có thể chưa có id trong JSON gốc.
+                    # Bơm id của hàng Supabase vào để lần ghi sau vẫn upsert đúng hàng.
+                    if not str(item.get("id", "")).strip():
+                        item["id"] = str(row.get("id", "") or "").strip()
+                    if not str(item.get("thoi_gian_iso", "")).strip():
+                        item["thoi_gian_iso"] = str(row.get("submitted_at", "") or "").strip()
+                    ds.append(item)
+                return ds
+        except Exception:
+            pass
+
+    data = _doc_json_local(HS_HISTORY_PATH, [])
+    return data if isinstance(data, list) else []
+
+
+def _attempt_uuid(value, item):
+    try:
+        return str(uuid.UUID(str(value)))
+    except Exception:
+        raw = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
+
+
+def _luu_attempts_shared(ds):
+    """Upsert từng lượt làm bài, không xóa lượt của học sinh khác."""
+    ds = list(ds or [])
+    local_ok = _luu_json_local(HS_HISTORY_PATH, ds)
+    cloud_ok = False
+    client_sb = _supabase_client()
+
+    if client_sb is not None:
+        try:
+            rows = []
+            for lan in ds:
+                if not isinstance(lan, dict):
+                    continue
+                sid = str(
+                    lan.get("hoc_sinh_id")
+                    or lan.get("ma_hoc_sinh")
+                    or ""
+                ).strip()
+                if not sid:
+                    continue
+
+                row_id = _attempt_uuid(lan.get("id"), lan)
+                lan = dict(lan)
+                lan["id"] = row_id
+                pham_vi = lan.get("pham_vi", {}) or {}
+                if not isinstance(pham_vi, dict):
+                    pham_vi = {}
+
+                submitted_at = str(
+                    lan.get("nop_bai_iso")
+                    or lan.get("thoi_gian_iso")
+                    or datetime.now(timezone.utc).isoformat()
+                ).strip()
+
+                try:
+                    score = lan.get("diem_chinh_thuc", lan.get("diem"))
+                    score = float(score) if score is not None else None
+                except Exception:
+                    score = None
+                try:
+                    score_scale = lan.get("thang_diem", 10)
+                    score_scale = float(score_scale) if score_scale is not None else None
+                except Exception:
+                    score_scale = None
+
+                rows.append({
+                    "id": row_id,
+                    "student_id": sid,
+                    "class_name": str(
+                        lan.get("lop") or pham_vi.get("lop") or ""
+                    ).strip(),
+                    "mode": str(lan.get("che_do", "") or "").strip(),
+                    "exam_id": str(
+                        pham_vi.get("de_id") or pham_vi.get("mau_id") or ""
+                    ).strip() or None,
+                    "test_session_id": str(
+                        pham_vi.get("dot_kiem_tra_id") or ""
+                    ).strip() or None,
+                    "submitted_at": submitted_at,
+                    "score": score,
+                    "score_scale": score_scale,
+                    "data": lan,
+                })
+
+            for i in range(0, len(rows), 100):
+                batch = rows[i:i + 100]
+                if batch:
+                    client_sb.table("student_attempts").upsert(
+                        batch, on_conflict="id"
+                    ).execute()
+            cloud_ok = True
+        except Exception:
+            cloud_ok = False
+
+    return cloud_ok or local_ok
+
 
 # Ảnh/sơ đồ của đề thật: hiển thị vừa đủ để đọc, không kéo tràn toàn bộ màn hình.
 GRAD_IMAGE_DISPLAY_WIDTH = 620
@@ -169,16 +489,12 @@ except Exception:
 # ==========================================================
 # ĐỌC YCCĐ
 # ==========================================================
-try:
-    with open(YCCD_PATH, "r", encoding="utf-8") as f:
-        KHO_YCCD = json.load(f)
+KHO_YCCD = _doc_document_shared(YCCD_PATH, None)
 
-except FileNotFoundError:
-    st.error("Không tìm thấy file yccd.json.")
-    st.stop()
-
-except json.JSONDecodeError:
-    st.error("File yccd.json bị lỗi định dạng.")
+if not isinstance(KHO_YCCD, dict):
+    st.error(
+        "Không đọc được kho YCCĐ từ Supabase hoặc file yccd.json dự phòng."
+    )
     st.stop()
 
 
@@ -187,41 +503,21 @@ except json.JSONDecodeError:
 # ==========================================================
 def doc_ngan_hang():
 
-    if not os.path.exists(BANK_PATH):
-        return []
+    data = _doc_document_shared(BANK_PATH, [])
 
-    try:
-        if os.path.getsize(BANK_PATH) == 0:
-            return []
+    if isinstance(data, list):
+        # Bổ sung mã chỉ báo NT/TH/VD cho câu cũ ngay khi đọc.
+        # Chỉ dùng bộ quy tắc cục bộ, không gọi API.
+        try:
+            return gan_chi_bao_cho_ngan_hang_hien_co(data)
+        except NameError:
+            return data
 
-        with open(BANK_PATH, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        if isinstance(data, list):
-            # Bổ sung mã chỉ báo NT/TH/VD cho câu cũ ngay khi đọc.
-            # Chỉ dùng bộ quy tắc cục bộ, không gọi API.
-            try:
-                return gan_chi_bao_cho_ngan_hang_hien_co(data)
-            except NameError:
-                # Hàm phân loại được khai báo ở phần sau của file;
-                # lần đọc sớm khi khởi động vẫn giữ dữ liệu nguyên trạng.
-                return data
-
-        return []
-
-    except Exception:
-        return []
+    return []
 
 
 def luu_ngan_hang(data):
-
-    with open(BANK_PATH, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    return _luu_document_shared(BANK_PATH, data)
 
 
 # ==========================================================
@@ -239,19 +535,16 @@ DEFAULT_GV_PROFILE = {
 def doc_ho_so_giao_vien():
     data = dict(DEFAULT_GV_PROFILE)
     try:
-        if os.path.exists(GV_PROFILE_PATH):
-            with open(GV_PROFILE_PATH, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-            if isinstance(saved, dict):
-                data.update({k: v for k, v in saved.items() if k in data})
+        saved = _doc_document_shared(GV_PROFILE_PATH, {})
+        if isinstance(saved, dict):
+            data.update({k: v for k, v in saved.items() if k in data})
     except Exception:
         pass
     return data
 
 
 def luu_ho_so_giao_vien(profile):
-    with open(GV_PROFILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(profile, f, ensure_ascii=False, indent=2)
+    return _luu_document_shared(GV_PROFILE_PATH, profile)
 
 
 def _avatar_data_uri(path):
@@ -10931,24 +11224,22 @@ def ket_qua_hoc_sinh():
 # TẠO ĐỀ TỪ NGÂN HÀNG
 # ==========================================================
 def doc_json_list(path):
-    try:
-        if not os.path.exists(path):
-            return []
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    # Hai nhóm có bảng riêng để nhiều học sinh có thể ghi đồng thời.
+    if os.path.abspath(path) == os.path.abspath(HS_HISTORY_PATH):
+        return _doc_attempts_shared()
+    if os.path.abspath(path) == os.path.abspath(STUDENT_PATH):
+        return _doc_students_shared()
+
+    data = _doc_document_shared(path, [])
+    return data if isinstance(data, list) else []
 
 
 def luu_json_list(path, data):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(
-            data,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    if os.path.abspath(path) == os.path.abspath(HS_HISTORY_PATH):
+        return _luu_attempts_shared(data)
+    if os.path.abspath(path) == os.path.abspath(STUDENT_PATH):
+        return _luu_students_shared(data)
+    return _luu_document_shared(path, data)
 
 
 # ==========================================================
@@ -12682,35 +12973,11 @@ def kho_tai_lieu_gv():
 # QUẢN LÝ HỌC SINH
 # ==========================================================
 def doc_danh_sach_hoc_sinh():
-    try:
-        if not os.path.exists(STUDENT_PATH):
-            return []
-
-        with open(
-            STUDENT_PATH,
-            "r",
-            encoding="utf-8"
-        ) as f:
-            data = json.load(f)
-
-        return data if isinstance(data, list) else []
-
-    except Exception:
-        return []
+    return _doc_students_shared()
 
 
 def luu_danh_sach_hoc_sinh(ds):
-    with open(
-        STUDENT_PATH,
-        "w",
-        encoding="utf-8"
-    ) as f:
-        json.dump(
-            ds,
-            f,
-            ensure_ascii=False,
-            indent=2
-        )
+    return _luu_students_shared(ds)
 
 
 def chuan_hoa_ten_lop(value):
@@ -13557,6 +13824,9 @@ def quan_ly_hoc_sinh():
 
                 luu_danh_sach_hoc_sinh(
                     ds_moi
+                )
+                _xoa_student_shared(
+                    ma_xoa
                 )
 
                 st.success(
@@ -23054,16 +23324,11 @@ def chuan_hoa_ma_hoc_sinh(value):
 
 
 def doc_lich_su_hoc_sinh():
-    return doc_json_list(
-        HS_HISTORY_PATH
-    )
+    return _doc_attempts_shared()
 
 
 def luu_lich_su_hoc_sinh(ds):
-    luu_json_list(
-        HS_HISTORY_PATH,
-        ds
-    )
+    return _luu_attempts_shared(ds)
 
 
 def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
