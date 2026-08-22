@@ -1,0 +1,744 @@
+{
+  "Khối 10": {
+    "MỞ ĐẦU": {
+      "Bài 1: Giới thiệu khái quát môn Sinh học": [
+        "Nêu được đối tượng và các lĩnh vực nghiên cứu của sinh học.",
+        "Trình bày được mục tiêu môn Sinh học.",
+        "Phân tích được vai trò của sinh học với cuộc sống hằng ngày và với sự phát triển kinh tế – xã hội; vai trò sinh học với sự phát triển bền vững môi trường sống và những vấn đề toàn cầu.",
+        "Nêu được triển vọng phát triển sinh học trong tương lai.",
+        "Kể được tên các ngành nghề liên quan đến sinh học và ứng dụng sinh học.",
+        "Trình bày được các thành tựu từ lí thuyết đến thành tựu công nghệ của một số ngành nghề chủ chốt (y – dược học, pháp y, công nghệ thực phẩm, bảo vệ môi trường, nông nghiệp, lâm nghiệp,...).",
+        "Nêu được triển vọng của các ngành nghề đó trong tương lai.",
+        "Trình bày được định nghĩa về phát triển bền vững.",
+        "Trình bày được vai trò của sinh học trong phát triển bền vững môi trường sống.",
+        "Phân tích được mối quan hệ giữa sinh học với những vấn đề xã hội: đạo đức sinh học, kinh tế, công nghệ."
+      ],
+      "Bài 2: Phương pháp nghiên cứu và học tập môn Sinh học": [
+        "Trình bày và vận dụng được một số phương pháp nghiên cứu sinh học, cụ thể: phương pháp quan sát; phương pháp làm việc trong phòng thí nghiệm (các kĩ thuật phòng thí nghiệm); phương pháp thực nghiệm khoa học.",
+        "Nêu được một số vật liệu, thiết bị nghiên cứu và học tập môn Sinh học.",
+        "Trình bày và vận dụng được các kĩ năng trong tiến trình nghiên cứu: quan sát (logic thực hiện quan sát; thu thập, lưu giữ kết quả quan sát; lựa chọn hình thức biểu đạt kết quả quan sát); xây dựng giả thuyết; thiết kế và tiến hành thí nghiệm; điều tra, khảo sát thực địa; làm báo cáo kết quả nghiên cứu.",
+        "Giới thiệu được phương pháp tin sinh học (Bioinfomatics) như là công cụ trong nghiên cứu và học tập sinh học."
+      ],
+      "Bài 3: Các cấp độ tổ chức của thế giới sống": [
+        "Phát biểu được khái niệm cấp độ tổ chức sống.",
+        "Trình bày được các đặc điểm chung của các cấp độ tổ chức sống.",
+        "Dựa vào sơ đồ, phân biệt được cấp độ tổ chức sống.",
+        "Giải thích được mối quan hệ giữa các cấp độ tổ chức sống."
+      ]
+    },
+    "CHƯƠNG 1. THÀNH PHẦN HÓA HỌC CỦA TẾ BÀO": {
+      "Bài 4: Các nguyên tố hóa học và nước": [
+        "Liệt kê được một số nguyên tố hoá học chính có trong tế bào (C, H, O, N, S, P).",
+        "Nêu được vai trò của các nguyên tố vi lượng, đa lượng trong tế bào.",
+        "Nêu được vai trò quan trọng của nguyên tố carbon trong tế bào (cấu trúc nguyên tử C có thể liên kết với chính nó và nhiều nhóm chức khác nhau).",
+        "Trình bày được đặc điểm cấu tạo phân tử nước quy định tính chất vật lí, hoá học và sinh học của nước, từ đó quy định vai trò sinh học của nước trong tế bào."
+      ],
+      "Bài 5: Các phân tử sinh học": [
+        "Nêu được khái niệm phân tử sinh học.",
+        "Trình bày được thành phần cấu tạo (các nguyên tố hoá học và đơn phân) và vai trò của các phân tử sinh học trong tế bào: carbohydrate, lipid, protein, nucleic acid.",
+        "Phân tích được mối quan hệ giữa cấu tạo và vai trò của các phân tử sinh học.",
+        "Nêu được một số nguồn thực phẩm cung cấp các phân tử sinh học cho cơ thể.",
+        "Vận dụng được kiến thức về thành phần hoá học của tế bào vào giải thích các hiện tượng và ứng dụng trong thực tiễn (ví dụ: ăn uống hợp lí; giải thích vì sao thịt lợn, thịt bò cùng là protein nhưng có nhiều đặc điểm khác nhau; giải thích vai trò của DNA trong xác định huyết thống, truy tìm tội phạm,...)."
+      ],
+      "Bài 6: Thực hành nhận biết một số phân tử sinh học": [
+        "Thực hành xác định (định tính) được một số thành phần hoá học có trong tế bào (protein, lipid,...)."
+      ]
+    },
+    "CHƯƠNG 2. CẤU TRÚC TẾ BÀO": {
+      "Bài 7: Tế bào nhân sơ": [
+        "Nêu được khái quát học thuyết tế bào.",
+        "Giải thích được tế bào là đơn vị cấu trúc và chức năng của cơ thể sống.",
+        "Mô tả được kích thước, cấu tạo và chức năng các thành phần của tế bào nhân sơ.",
+        "Lập được bảng so sánh tế bào nhân sơ và tế bào nhân thực."
+      ],
+      "Bài 8: Tế bào nhân thực": [
+        "Phân tích được mối quan hệ phù hợp giữa cấu tạo và chức năng của thành tế bào (ở tế bào thực vật) và màng sinh chất.",
+        "Nêu được cấu tạo và chức năng của tế bào chất.",
+        "Trình bày được cấu trúc của nhân tế bào và chức năng quan trọng của nhân.",
+        "Phân tích được mối quan hệ giữa cấu tạo và chức năng của các bào quan trong tế bào.",
+        "Quan sát hình vẽ, lập được bảng so sánh cấu tạo tế bào thực vật và động vật."
+      ],
+      "Bài 9 - Thực hành: Quan sát tế bào": [
+        "Thực hành làm được tiêu bản và quan sát được tế bào sinh vật nhân sơ (vi khuẩn).",
+        "Làm được tiêu bản hiển vi tế bào nhân thực (củ hành tây, hành ta, thài lài tía, hoa lúa, bí ngô, tế bào niêm mạc xoang miệng,...) và quan sát nhân, một số bào quan trên tiêu bản đó."
+      ]
+    },
+    "CHƯƠNG 3. TRAO ĐỔI CHẤT QUA MÀNG VÀ TRUYỀN TIN TẾ BÀO": {
+      "Bài 10: Trao đổi chất qua màng tế bào": [
+        "Phân biệt được các hình thức vận chuyển các chất qua màng sinh chất: vận chuyển thụ động, chủ động.",
+        "Nêu được ý nghĩa của các hình thức đó. Lấy được ví dụ minh hoạ.",
+        "Trình bày được hiện tượng nhập bào và xuất bào thông qua biến dạng của màng sinh chất. Lấy được ví dụ minh hoạ.",
+        "Vận dụng những hiểu biết về sự vận chuyển các chất qua màng sinh chất để giải thích một số hiện tượng thực tiễn (muối dưa, muối cà)."
+      ],
+      "Bài 11 - Thực hành: Thí nghiệm co và phản co nguyên sinh": [
+        "Làm được thí nghiệm và quan sát hiện tượng co và phản co nguyên sinh (tế bào hành, tế bào máu,...); thí nghiệm tính thấm có chọn lọc của màng sinh chất tế bào sống."
+      ],
+      "Bài 12: Truyền tin tế bào": [
+        "Nêu được khái niệm về thông tin giữa các tế bào.",
+        "Dựa vào sơ đồ thông tin giữa các tế bào, trình bày được các quá trình: tiếp nhận (một phân tử truyền tin liên kết vào một protein thụ thể làm thụ thể thay đổi hình dạng); truyền tin (các chuỗi tương tác phân tử chuyển tiếp tín hiệu từ các thụ thể tới các phân tử đích trong tế bào); đáp ứng (tế bào phát tín hiệu điều khiển phiên mã, dịch mã hoặc điều hoà hoạt động của tế bào)."
+      ]
+    },
+    "CHƯƠNG 4. CHUYỂN HÓA NĂNG LƯỢNG TRONG TẾ BÀO": {
+      "Bài 13: Khái quát về chuyển hóa vật chất và năng lượng": [
+        "Nêu được khái niệm trao đổi chất ở tế bào.",
+        "Phân biệt được các dạng năng lượng trong chuyển hoá năng lượng ở tế bào.",
+        "Giải thích được năng lượng được tích luỹ và sử dụng cho các hoạt động sống của tế bào là dạng hoá năng (năng lượng tiềm ẩn trong các liên kết hoá học).",
+        "Phân tích được cấu tạo và chức năng của ATP về giá trị năng lượng sinh học.",
+        "Phát biểu được khái niệm chuyển hoá năng lượng trong tế bào."
+      ],
+      "Bài 14: Phân giải và tổng hợp các chất trong tế bào": [
+        "Nêu được khái niệm tổng hợp các chất trong tế bào. Lấy được ví dụ minh hoạ (tổng hợp protein, lipid, carbohydrate,...).",
+        "Trình bày được quá trình tổng hợp các chất song song với tích luỹ năng lượng.",
+        "Nêu được vai trò quan trọng của quang hợp trong việc tổng hợp các chất và tích luỹ năng lượng trong tế bào thực vật.",
+        "Nêu được vai trò của hoá tổng hợp và quang khử ở vi khuẩn.",
+        "Trình bày được quá trình tổng hợp và phân giải ATP gắn liền với quá trình tích luỹ, giải phóng năng lượng.",
+        "Phát biểu được khái niệm phân giải các chất trong tế bào.",
+        "Trình bày được các giai đoạn phân giải hiếu khí (hô hấp tế bào) và các giai đoạn phân giải kị khí (lên men).",
+        "Trình bày được quá trình phân giải các chất song song với giải phóng năng lượng.",
+        "Phân tích được mối quan hệ giữa tổng hợp và phân giải các chất trong tế bào."
+      ],
+      "Bài 15: Enzyme": [
+        "Trình bày được vai trò của enzyme trong quá trình trao đổi chất và chuyển hoá năng lượng.",
+        "Nêu được khái niệm, cấu trúc và cơ chế tác động của enzyme.",
+        "Phân tích được các yếu tố ảnh hưởng đến hoạt động xúc tác của enzyme."
+      ],
+      "Bài 16 - Thực hành: Phân tích ảnh hưởng của một số yếu tố đến hoạt tính của enzyme và kiểm tra hoạt tính của enzyme amylase": [
+        "Thực hành: làm được thí nghiệm phân tích ảnh hưởng của một số yếu tố đến hoạt tính của enzyme; thí nghiệm kiểm tra hoạt tính thuỷ phân tinh bột của amylase."
+      ]
+    },
+    "CHƯƠNG 5. CHU KÌ TẾ BÀO VÀ PHÂN BÀO": {
+      "Bài 17: Chu kì tế bào và nguyên phân": [
+        "Nêu được khái niệm chu kì tế bào.",
+        "Dựa vào sơ đồ, trình bày được các giai đoạn và mối quan hệ giữa các giai đoạn trong chu kì tế bào.",
+        "Dựa vào cơ chế nhân đôi và phân li của nhiễm sắc thể để giải thích được quá trình nguyên phân là cơ chế sinh sản của tế bào.",
+        "Giải thích được sự phân chia tế bào một cách không bình thường có thể dẫn đến ung thư.",
+        "Trình bày được một số thông tin về bệnh ung thư ở Việt Nam.",
+        "Nêu được một số biện pháp phòng tránh ung thư."
+      ],
+      "Bài 18 - Thực hành: Quan sát quá trình nguyên phân": [
+        "Thực hành làm được tiêu bản nhiễm sắc thể để quan sát quá trình nguyên phân (hành tây, hành ta, đại mạch, cây tỏi, lay ơn, khoai môn,...)."
+      ],
+      "Bài 19: Giảm phân": [
+        "Dựa vào cơ chế nhân đôi và phân li của nhiễm sắc thể để giải thích được quá trình giảm phân, thụ tinh cùng với nguyên phân là cơ sở của sinh sản hữu tính ở sinh vật.",
+        "Trình bày được một số nhân tố ảnh hưởng đến quá trình giảm phân.",
+        "Lập được bảng so sánh quá trình nguyên phân và quá trình giảm phân.",
+        "Vận dụng kiến thức về nguyên phân và giảm phân vào giải thích một số vấn đề trong thực tiễn."
+      ],
+      "Bài 20 - Thực hành: Quan sát quá trình giảm phân": [
+        "Làm được tiêu bản quan sát quá trình giảm phân ở tế bào động vật, thực vật (châu chấu đực, hoa hành,...)."
+      ],
+      "Bài 21: Công nghệ tế bào": [
+        "Nêu được khái niệm, nguyên lí công nghệ và một số thành tựu của công nghệ tế bào thực vật.",
+        "Nêu được khái niệm, nguyên lí công nghệ và một số thành tựu công nghệ tế bào động vật."
+      ]
+    },
+    "CHƯƠNG 6. SINH HỌC VI SINH VẬT": {
+      "Bài 22: Khái quát về vi sinh vật": [
+        "Nêu được khái niệm vi sinh vật.",
+        "Kể tên được các nhóm vi sinh vật.",
+        "Phân biệt được các kiểu dinh dưỡng ở vi sinh vật.",
+        "Trình bày được một số phương pháp nghiên cứu vi sinh vật.",
+        "Thực hành được một số phương pháp nghiên cứu vi sinh vật thông dụng.",
+        "Nêu được một số ví dụ về quá trình tổng hợp và phân giải các chất ở vi sinh vật.",
+        "Phân tích được vai trò của vi sinh vật trong đời sống con người và trong tự nhiên."
+      ],
+      "Bài 23: Sinh trưởng và sinh sản ở vi sinh vật": [
+        "Nêu được khái niệm sinh trưởng ở vi sinh vật.",
+        "Trình bày được đặc điểm các pha sinh trưởng của quần thể vi khuẩn.",
+        "Phân biệt được các hình thức sinh sản ở vi sinh vật nhân sơ và vi sinh vật nhân thực.",
+        "Trình bày được các yếu tố ảnh hưởng đến sinh trưởng của vi sinh vật.",
+        "Trình bày được ý nghĩa của việc sử dụng kháng sinh để ức chế hoặc tiêu diệt vi sinh vật gây bệnh và tác hại của việc lạm dụng thuốc kháng sinh trong chữa bệnh cho con người và động vật."
+      ],
+      "Bài 24: Thực hành và ứng dụng vi sinh vật": [
+        "Kể tên được một số thành tựu hiện đại của công nghệ vi sinh vật.",
+        "Trình bày được cơ sở khoa học của việc ứng dụng vi sinh vật trong thực tiễn.",
+        "Trình bày được một số ứng dụng vi sinh vật trong thực tiễn (sản xuất và bảo quản thực phẩm, sản xuất thuốc, xử lí môi trường,...).",
+        "Thực hiện được dự án hoặc đề tài tìm hiểu về các sản phẩm công nghệ vi sinh vật.",
+        "Làm được tập san các bài viết, tranh ảnh về công nghệ vi sinh vật.",
+        "Làm được một số sản phẩm lên men từ vi sinh vật (sữa chua, dưa chua, bánh mì,...).",
+        "Phân tích được triển vọng công nghệ vi sinh vật trong tương lai.",
+        "Kể tên được một số ngành nghề liên quan đến công nghệ vi sinh vật và triển vọng phát triển của ngành nghề đó."
+      ]
+    },
+    "CHƯƠNG 7. VIRUS": {
+      "Bài 25: Virus và các ứng dụng": [
+        "Nêu được khái niệm và các đặc điểm của virus.",
+        "Trình bày được cấu tạo của virus.",
+        "Trình bày được các giai đoạn nhân lên của virus trong tế bào chủ. Từ đó giải thích được cơ chế gây bệnh do virus.",
+        "Kể tên được một số thành tựu ứng dụng virus trong sản xuất chế phẩm sinh học; trong y học và nông nghiệp; sản xuất thuốc trừ sâu từ virus.",
+        "Trình bày được phương thức lây truyền một số bệnh do virus ở người, thực vật và động vật (HIV, cúm, sởi,...) và cách phòng chống.",
+        "Giải thích được các bệnh do virus thường lây lan nhanh, rộng và có nhiều biến thể."
+      ],
+      "Bài 26 - Thực hành: Điều tra một số bệnh do virus và tuyên truyền phòng chống bệnh": [
+        "Thực hiện được dự án hoặc đề tài điều tra một số bệnh do virus gây ra và tuyên truyền phòng chống bệnh."
+      ]
+    },
+    "CHUYÊN ĐỀ HỌC TẬP": {
+      "Chuyên đề 10.1: Công nghệ tế bào và một số thành tựu": [
+        "Kể được tên một số thành tựu hiện đại của công nghệ tế bào.",
+        "Trình bày được tính toàn năng và các giai đoạn chung của công nghệ tế bào. Lấy được ví dụ về công nghệ tế bào thực vật, công nghệ tế bào động vật.",
+        "Nêu được khái niệm tế bào gốc.",
+        "Trình bày được một số thành tựu trong sử dụng tế bào gốc.",
+        "Phân tích được triển vọng của công nghệ tế bào trong tương lai.",
+        "Thực hiện được dự án hoặc đề tài tìm hiểu về các thành tựu nuôi cấy mô, thành tựu tế bào gốc.",
+        "Thiết kế được tập san các bài viết, tranh ảnh về công nghệ tế bào.",
+        "Trình bày được quan điểm của bản thân về tầm quan trọng của việc sử dụng tế bào gốc trong thực tiễn.",
+        "Tranh luận, phản biện được quan điểm về nhân bản vô tính động vật, con người."
+      ],
+      "Chuyên đề 10.2: Công nghệ enzyme và ứng dụng": [
+        "Trình bày được một số thành tựu của công nghệ enzyme.",
+        "Phân tích được cơ sở khoa học ứng dụng công nghệ enzyme.",
+        "Trình bày được quy trình công nghệ sản xuất enzyme. Lấy được một số ví dụ minh hoạ.",
+        "Trình bày được một số ứng dụng của enzyme trong các lĩnh vực: công nghệ thực phẩm, y dược, kĩ thuật di truyền.",
+        "Phân tích được triển vọng công nghệ enzyme trong tương lai.",
+        "Thực hiện được dự án hoặc đề tài tìm hiểu về ứng dụng enzyme."
+      ],
+      "Chuyên đề 10.3: Công nghệ vi sinh vật trong xử lí ô nhiễm môi trường": [
+        "Nêu được vai trò của vi sinh vật trong xử lí ô nhiễm môi trường.",
+        "Mô tả được quá trình phân giải các hợp chất trong xử lí môi trường bằng công nghệ vi sinh: phân giải hiếu khí, kị khí, lên men.",
+        "Trình bày được một số công nghệ ứng dụng vi sinh vật trong xử lí môi trường: xử lí ô nhiễm môi trường đất; xử lí nước thải và làm sạch nước; thu nhận khí sinh học; xử lí chất thải rắn.",
+        "Thực hiện được dự án: Điều tra công nghệ ứng dụng vi sinh vật xử lí ô nhiễm môi trường tại địa phương (xử lí rác thải, nước thải,...)."
+      ]
+    }
+  },
+  "Khối 11": {
+    "CHƯƠNG 1. TRAO ĐỔI CHẤT VÀ CHUYỂN HOÁ NĂNG LƯỢNG Ở SINH VẬT": {
+      "Bài 1. Khái quát về trao đổi chất và chuyển hóa năng lượng trong sinh giới": [
+        "Phân tích được vai trò của trao đổi chất và chuyển hoá năng lượng đối với sinh vật.",
+        "Nêu được các dấu hiệu đặc trưng của trao đổi chất và chuyển hoá năng lượng (thu nhận các chất từ môi trường, vận chuyển các chất, biến đổi các chất, tổng hợp các chất và tích luỹ năng lượng, phân giải các chất và giải phóng năng lượng, đào thải các chất ra môi trường, điều hoà).",
+        "Dựa vào sơ đồ chuyển hoá năng lượng trong sinh giới, mô tả được tóm tắt ba giai đoạn chuyển hoá năng lượng (tổng hợp, phân giải và huy động năng lượng).",
+        "Trình bày được mối quan hệ giữa trao đổi chất và chuyển hoá năng lượng ở cấp tế bào và cơ thể.",
+        "Nêu được các phương thức trao đổi chất và chuyển hoá năng lượng (tự dưỡng và dị dưỡng). Lấy được ví dụ minh hoạ.",
+        "Nêu được khái niệm tự dưỡng và dị dưỡng.",
+        "Phân tích được vai trò của sinh vật tự dưỡng trong sinh giới."
+      ],
+      "Bài 2. Trao đổi nước và khoáng ở thực vật": [
+        "Trình bày được nước có vai trò vừa là thành phần cấu tạo tế bào thực vật, là dung môi hoà tan các chất, môi trường cho các phản ứng sinh hoá, điều hoà thân nhiệt và vừa là phương tiện vận chuyển các chất trong hệ vận chuyển ở cơ thể thực vật.",
+        "Dựa vào sơ đồ, mô tả được quá trình trao đổi nước trong cây, gồm: sự hấp thụ nước ở rễ, sự vận chuyển nước ở thân và sự thoát hơi nước ở lá.",
+        "Trình bày được cơ chế hấp thụ nước và khoáng ở tế bào lông hút của rễ.",
+        "Nêu được sự vận chuyển các chất trong cây theo hai dòng: dòng mạch gỗ và dòng mạch rây.",
+        "Trình bày được sự vận chuyển nước và khoáng trong cây phụ thuộc vào: động lực hút của lá (do thoát hơi nước tạo ra), động lực đẩy nước của rễ (do áp suất rễ tạo ra) và động lực trung gian (lực liên kết giữa các phân tử nước và lực bám giữa các phân tử nước với thành mạch dẫn).",
+        "Nêu được sự vận chuyển các chất hữu cơ trong mạch rây cung cấp cho các hoạt động sống của cây và dự trữ trong cây.",
+        "Trình bày được cơ chế đóng mở khí khổng thực hiện chức năng điều tiết quá trình thoát hơi nước.",
+        "Giải thích được vai trò quan trọng của sự thoát hơi nước đối với đời sống của cây.",
+        "Nêu được khái niệm dinh dưỡng ở thực vật và vai trò sinh lí của một số nguyên tố khoáng đối với thực vật (cụ thể một số nguyên tố đa lượng, vi lượng).",
+        "Quan sát và nhận biết được một số biểu hiện của cây do thiếu khoáng.",
+        "Nêu được các nguồn cung cấp nitơ cho cây.",
+        "Trình bày được quá trình hấp thụ và biến đổi nitrate và ammonium ở thực vật.",
+        "Phân tích được một số nhân tố ảnh hưởng đến trao đổi nước ở thực vật và ứng dụng hiểu biết này vào thực tiễn.",
+        "Giải thích được sự cân bằng nước và việc tưới tiêu hợp lí; các phản ứng chống chịu hạn, chống chịu ngập úng, chống chịu mặn của thực vật và chọn giống cây trồng có khả năng chống chịu.",
+        "Trình bày được các nhân tố ảnh hưởng đến quá trình dinh dưỡng khoáng ở cây, đặc biệt là nhiệt độ và ánh sáng. Ứng dụng được kiến thức này vào thực tiễn.",
+        "Phân tích được vai trò của phân bón đối với năng suất cây trồng.",
+        "Thông qua thực hành, quan sát được cấu tạo khí khổng ở lá.",
+        "Thực hiện được các thí nghiệm chứng minh sự hút nước ở rễ; vận chuyển nước ở thân và thoát hơi nước ở lá.",
+        "Thực hành tưới nước chăm sóc cây.",
+        "Thực hiện được các bài thực hành về thuỷ canh, khí canh."
+      ],
+      "Bài 3. Quang hợp ở thực vật": [
+        "Phát biểu được khái niệm quang hợp ở thực vật.",
+        "Viết được phương trình quang hợp.",
+        "Nêu được vai trò của quang hợp ở thực vật (vai trò đối với cây, với sinh vật và sinh quyển).",
+        "Trình bày được vai trò của sắc tố trong việc hấp thụ năng lượng ánh sáng.",
+        "Nêu được các sản phẩm của quá trình biến đổi năng lượng ánh sáng thành năng lượng hoá học (ATP và NADPH).",
+        "Nêu được các con đường đồng hoá carbon trong quang hợp.",
+        "Chứng minh được sự thích nghi của thực vật C4 và CAM trong điều kiện môi trường bất lợi.",
+        "Trình bày được vai trò của sản phẩm quang hợp trong tổng hợp chất hữu cơ (chủ yếu là tinh bột), đối với cây và đối với sinh giới.",
+        "Phân tích được ảnh hưởng của các điều kiện đến quang hợp (ánh sáng, CO2, nhiệt độ).",
+        "Phân tích được mối quan hệ giữa quang hợp và năng suất cây trồng.",
+        "Vận dụng hiểu biết về quang hợp để giải thích được một số biện pháp kĩ thuật và công nghệ nâng cao năng suất cây trồng.",
+        "Thực hành, quan sát được lục lạp trong tế bào thực vật; nhận biết, tách chiết các sắc tố (chlorophyll a, b; carotene và xanthophyll) trong lá cây.",
+        "Thiết kế và thực hiện được các thí nghiệm về sự hình thành tinh bột; thải oxygen trong quá trình quang hợp."
+      ],
+      "Bài 4. Hô hấp ở thực vật": [
+        "Nêu được khái niệm hô hấp ở thực vật.",
+        "Phân tích được vai trò của hô hấp ở thực vật.",
+        "Trình bày được sơ đồ các giai đoạn của hô hấp ở thực vật.",
+        "Phân tích được ảnh hưởng của điều kiện môi trường đến hô hấp ở thực vật.",
+        "Vận dụng được hiểu biết về hô hấp giải thích các vấn đề thực tiễn (ví dụ: bảo quản hạt và nông sản, cây ngập úng sẽ chết,...).",
+        "Thực hành được thí nghiệm hô hấp ở thực vật.",
+        "Phân tích được mối quan hệ giữa quang hợp và hô hấp."
+      ],
+      "Bài 5. Dinh dưỡng và tiêu hoá ở động vật": [
+        "Trình bày được quá trình dinh dưỡng bao gồm: lấy thức ăn; tiêu hoá thức ăn; hấp thu chất dinh dưỡng và đồng hoá các chất.",
+        "Dựa vào sơ đồ (hoặc hình ảnh), trình bày được hình thức tiêu hoá ở động vật chưa có cơ quan tiêu hoá; động vật có túi tiêu hoá; động vật có ống tiêu hoá.",
+        "Vận dụng được hiểu biết về dinh dưỡng trong xây dựng chế độ ăn uống và các biện pháp dinh dưỡng phù hợp ở mỗi lứa tuổi và trạng thái cơ thể.",
+        "Vận dụng được hiểu biết về hệ tiêu hoá để phòng các bệnh về tiêu hoá.",
+        "Giải thích được vai trò của việc sử dụng thực phẩm sạch trong đời sống con người.",
+        "Thực hiện tìm hiểu được các bệnh về tiêu hoá ở người và các bệnh học đường liên quan đến dinh dưỡng như béo phì, suy dinh dưỡng."
+      ],
+      "Bài 6. Hô hấp và trao đổi khí ở động vật": [
+        "Phân tích được vai trò của hô hấp ở động vật: trao đổi khí với môi trường và hô hấp tế bào.",
+        "Dựa vào hình ảnh, sơ đồ, trình bày được các hình thức trao đổi khí: qua bề mặt cơ thể; ống khí; mang; phổi.",
+        "Giải thích được một số hiện tượng trong thực tiễn, ví dụ: nuôi tôm, cá thường cần có máy sục khí oxygen, nuôi ếch chú ý giữ môi trường ẩm ướt,...",
+        "Vận dụng hiểu biết về hô hấp trao đổi khí để phòng các bệnh về đường hô hấp.",
+        "Giải thích được tác hại của hút thuốc lá đối với sức khoẻ.",
+        "Giải thích được vai trò của thể dục, thể thao; thực hiện được việc tập thể dục thể thao đều đặn.",
+        "Giải thích được tác hại của ô nhiễm không khí đến hô hấp.",
+        "Tìm hiểu được các bệnh về đường hô hấp.",
+        "Trình bày được quan điểm của bản thân về việc xử phạt người hút thuốc lá ở nơi công cộng và cấm trẻ em dưới 16 tuổi hút thuốc lá."
+      ],
+      "Bài 7. Vận chuyển các chất trong cơ thể động vật": [
+        "Trình bày được khái quát hệ vận chuyển trong cơ thể động vật.",
+        "Nêu được một số dạng hệ vận chuyển ở các nhóm động vật khác nhau.",
+        "Dựa vào hình ảnh, sơ đồ, phân biệt được các dạng tuần hoàn ở động vật: tuần hoàn kín và tuần hoàn hở; tuần hoàn đơn và tuần hoàn kép.",
+        "Trình bày được cấu tạo và hoạt động của tim và sự phù hợp giữa cấu tạo và chức năng của tim.",
+        "Giải thích được khả năng tự phát nhịp gây nên tính tự động của tim.",
+        "Dựa vào hình ảnh, sơ đồ, mô tả được cấu tạo và hoạt động của hệ mạch.",
+        "Mô tả được quá trình vận chuyển máu trong hệ mạch (huyết áp, vận tốc máu và sự trao đổi chất giữa máu với các tế bào).",
+        "Nêu được hoạt động tim mạch được điều hoà bằng cơ chế thần kinh và thể dịch.",
+        "Phân tích được tác hại của việc lạm dụng rượu, bia đối với sức khoẻ của con người, đặc biệt là hệ tim mạch.",
+        "Trình bày được vai trò của thể dục, thể thao đối với tuần hoàn.",
+        "Kể được các bệnh thường gặp về hệ tuần hoàn.",
+        "Trình bày được một số biện pháp phòng chống các bệnh tim mạch.",
+        "Thực hành: Đo được huyết áp ở người và nhận biết được trạng thái sức khoẻ từ kết quả đo. Đo nhịp tim người ở các trạng thái hoạt động khác nhau và giải thích kết quả.",
+        "Thực hành: mổ được tim ếch và tìm hiểu tính tự động của tim; tìm hiểu được vai trò của dây thần kinh giao cảm và đối giao cảm; tìm hiểu được tác động của adrenalin đến hoạt động của tim.",
+        "Đánh giá được ý nghĩa việc xử phạt người tham gia giao thông khi sử dụng rượu, bia."
+      ],
+      "Bài 8. Miễn dịch ở động vật": [
+        "Nêu được các nguyên nhân bên trong và bên ngoài gây nên các bệnh ở động vật và người.",
+        "Giải thích được vì sao nguy cơ mắc bệnh ở người rất lớn, nhưng xác suất bị bệnh rất nhỏ.",
+        "Phát biểu được khái niệm miễn dịch.",
+        "Mô tả được khái quát về hệ miễn dịch ở người: các tuyến và vai trò của mỗi tuyến.",
+        "Phân biệt được miễn dịch không đặc hiệu và đặc hiệu.",
+        "Trình bày được cơ chế mắc bệnh và cơ chế chống bệnh ở động vật.",
+        "Phân tích được vai trò của việc chủ động tiêm phòng vaccine.",
+        "Giải thích được cơ sở của hiện tượng dị ứng với chất kích thích, thức ăn; cơ chế thử phản ứng khi tiêm kháng sinh.",
+        "Trình bày được quá trình phá vỡ hệ miễn dịch của các tác nhân gây bệnh trong cơ thể người bệnh: HIV, ung thư, tự miễn.",
+        "Điều tra việc thực hiện tiêm phòng bệnh, dịch trong trường học hoặc tại địa phương."
+      ],
+      "Bài 9. Bài tiết và cân bằng nội môi": [
+        "Phát biểu được khái niệm bài tiết.",
+        "Trình bày được vai trò của bài tiết.",
+        "Trình bày được vai trò của thận trong bài tiết và cân bằng nội môi.",
+        "Nêu được các khái niệm: nội môi, cân bằng động (lấy ví dụ ở người về các chỉ số cân bằng pH, đường, nước).",
+        "Kể tên được một số cơ quan tham gia điều hoà cân bằng nội môi và hằng số nội môi cơ thể.",
+        "Dựa vào sơ đồ, giải thích được cơ chế chung điều hoà nội môi.",
+        "Trình bày được các biện pháp bảo vệ thận: điều chỉnh chế độ ăn và uống đủ nước; không sử dụng quá nhiều loại thuốc; không uống nhiều rượu, bia.",
+        "Vận dụng được kiến thức bài tiết để phòng và chống được một số bệnh liên quan đến thận và bài tiết (suy thận, sỏi thận,...).",
+        "Nêu được tầm quan trọng của việc xét nghiệm định kì các chỉ số sinh hoá liên quan đến cân bằng nội môi.",
+        "Giải thích được các kết quả xét nghiệm."
+      ]
+    },
+    "CHƯƠNG 2. CẢM ỨNG Ở SINH VẬT": {
+      "Bài 10. Khái quát về cảm ứng ở sinh vật": [
+        "Phát biểu được khái niệm cảm ứng ở sinh vật.",
+        "Trình bày được vai trò của cảm ứng đối với sinh vật.",
+        "Trình bày được cơ chế cảm ứng ở sinh vật (thu nhận kích thích, dẫn truyền kích thích, phân tích và tổng hợp, trả lời kích thích)."
+      ],
+      "Bài 11. Cảm ứng ở thực vật": [
+        "Nêu được khái niệm cảm ứng ở thực vật.",
+        "Phân tích được vai trò cảm ứng đối với thực vật.",
+        "Trình bày được đặc điểm và cơ chế cảm ứng ở thực vật.",
+        "Nêu được một số hình thức biểu hiện của cảm ứng ở thực vật: vận động hướng động và vận động cảm ứng.",
+        "Vận dụng được hiểu biết về cảm ứng ở thực vật để giải thích một số hiện tượng trong thực tiễn.",
+        "Thực hành quan sát được hiện tượng cảm ứng ở một số loài cây.",
+        "Thực hiện được thí nghiệm về cảm ứng ở một số loài cây."
+      ],
+      "Bài 12. Cảm ứng ở động vật": [
+        "Trình bày được các hình thức cảm ứng ở các nhóm động vật khác nhau.",
+        "Dựa vào hình vẽ (hoặc sơ đồ), phân biệt được hệ thần kinh dạng ống với hệ thần kinh dạng lưới và dạng chuỗi hạch.",
+        "Dựa vào hình vẽ, nêu được cấu tạo và chức năng của tế bào thần kinh.",
+        "Dựa vào sơ đồ, mô tả được cấu tạo synapse và quá trình truyền tin qua synapse.",
+        "Nêu được khái niệm phản xạ.",
+        "Dựa vào sơ đồ, phân tích được một cung phản xạ (các thụ thể, dẫn truyền, phân tích, đáp ứng).",
+        "Nêu được các dạng thụ thể, vai trò của chúng (các thụ thể cảm giác về: cơ học, hoá học, điện, nhiệt, đau).",
+        "Nêu được vai trò các cảm giác vị giác, xúc giác và khứu giác trong cung phản xạ.",
+        "Phân tích được cơ chế thu nhận và phản ứng kích thích của các cơ quan cảm giác (tai, mắt).",
+        "Phân tích được đáp ứng của cơ xương trong cung phản xạ.",
+        "Phân biệt được phản xạ không điều kiện và phản xạ có điều kiện: nêu được đặc điểm và phân loại được phản xạ không điều kiện, lấy được các ví dụ minh hoạ; trình bày được đặc điểm, các điều kiện và cơ chế hình thành phản xạ có điều kiện, lấy được các ví dụ minh hoạ.",
+        "Nêu được một số bệnh do tổn thương hệ thần kinh như mất khả năng vận động, mất khả năng cảm giác...",
+        "Vận dụng hiểu biết về hệ thần kinh để giải thích được cơ chế giảm đau khi uống và tiêm thuốc giảm đau.",
+        "Đề xuất được các biện pháp bảo vệ hệ thần kinh: không lạm dụng chất kích thích; phòng chống nghiện và cai nghiện các chất kích thích."
+      ],
+      "Bài 13. Tập tính ở động vật": [
+        "Nêu được khái niệm tập tính ở động vật.",
+        "Phân tích được vai trò của tập tính đối với đời sống động vật.",
+        "Lấy được một số ví dụ minh hoạ các dạng tập tính ở động vật.",
+        "Phân biệt được tập tính bẩm sinh và tập tính học được. Lấy được ví dụ minh hoạ.",
+        "Lấy được ví dụ chứng minh pheromone là chất được sử dụng như những tín hiệu hoá học của các cá thể cùng loài.",
+        "Nêu được một số hình thức học tập ở động vật. Lấy được ví dụ minh hoạ.",
+        "Giải thích được cơ chế học tập ở người.",
+        "Trình bày được một số ứng dụng: dạy động vật làm xiếc; dạy trẻ em học tập; ứng dụng trong chăn nuôi; bảo vệ mùa màng; ứng dụng pheromone trong thực tiễn.",
+        "Quan sát và mô tả được tập tính của một số động vật."
+      ]
+    },
+    "CHƯƠNG 3. SINH TRƯỞNG VÀ PHÁT TRIỂN Ở SINH VẬT": {
+      "Bài 14. Khái quát về sinh trưởng và phát triển ở sinh vật": [
+        "Nêu được khái niệm sinh trưởng và phát triển ở sinh vật.",
+        "Trình bày được các dấu hiệu đặc trưng của sinh trưởng và phát triển ở sinh vật (tăng khối lượng và kích thước tế bào, tăng số lượng tế bào, phân hoá tế bào và phát sinh hình thái, chức năng sinh lí, điều hoà).",
+        "Phân tích được mối quan hệ giữa sinh trưởng và phát triển.",
+        "Nêu được khái niệm vòng đời và tuổi thọ của sinh vật. Lấy được ví dụ minh hoạ.",
+        "Trình bày được một số ứng dụng hiểu biết về vòng đời của sinh vật trong thực tiễn.",
+        "Trình bày được một số yếu tố ảnh hưởng đến tuổi thọ của con người."
+      ],
+      "Bài 15. Sinh trưởng và phát triển ở thực vật": [
+        "Nêu được đặc điểm sinh trưởng và phát triển ở thực vật.",
+        "Phân tích được một số yếu tố môi trường ảnh hưởng đến sinh trưởng và phát triển ở thực vật.",
+        "Nêu được khái niệm mô phân sinh.",
+        "Trình bày được vai trò của mô phân sinh đối với sinh trưởng ở thực vật.",
+        "Phân biệt được các loại mô phân sinh.",
+        "Trình bày được quá trình sinh trưởng sơ cấp và sinh trưởng thứ cấp ở thực vật.",
+        "Nêu được khái niệm và vai trò hormone thực vật.",
+        "Phân biệt được các loại hormone kích thích tăng trưởng và hormone ức chế tăng trưởng.",
+        "Trình bày được sự tương quan các hormone thực vật và nêu được ví dụ minh hoạ.",
+        "Trình bày được một số ứng dụng của hormone thực vật trong thực tiễn.",
+        "Dựa vào sơ đồ vòng đời, trình bày được quá trình phát triển ở thực vật có hoa.",
+        "Trình bày được các nhân tố chi phối quá trình phát triển ở thực vật có hoa. Lấy được ví dụ minh hoạ.",
+        "Vận dụng được hiểu biết về sinh trưởng và phát triển ở thực vật để giải thích một số ứng dụng trong thực tiễn (ví dụ: kích thích hay hạn chế sinh trưởng, giải thích vòng gỗ,...).",
+        "Thực hành, quan sát được tác dụng của bấm ngọn, tỉa cành, phun kích thích tố lên cây, tính tuổi cây."
+      ],
+      "Bài 16. Sinh trưởng và phát triển ở động vật": [
+        "Nêu được đặc điểm sinh trưởng và phát triển ở động vật.",
+        "Dựa vào sơ đồ vòng đời, trình bày được các giai đoạn chính trong quá trình sinh trưởng và phát triển ở động vật (giai đoạn phôi và giai đoạn hậu phôi).",
+        "Phân biệt các hình thức phát triển qua biến thái và không qua biến thái.",
+        "Phân tích được ý nghĩa của sự phát triển qua biến thái hoàn toàn ở động vật đối với đời sống của chúng.",
+        "Dựa vào hình ảnh (hoặc sơ đồ, video), trình bày được các giai đoạn phát triển của con người từ hợp tử đến cơ thể trưởng thành.",
+        "Vận dụng được hiểu biết về các giai đoạn phát triển để áp dụng chế độ ăn uống hợp lí.",
+        "Nêu được ảnh hưởng của các nhân tố bên trong đến sinh trưởng và phát triển động vật (di truyền; giới tính; hormone sinh trưởng và phát triển).",
+        "Nêu được vai trò của một số hormone đối với hoạt động sống của động vật.",
+        "Vận dụng hiểu biết về hormone để giải thích một số hiện tượng trong thực tiễn (ví dụ: không lạm dụng hormone trong chăn nuôi; thiến hoạn động vật;...).",
+        "Trình bày được ảnh hưởng của các nhân tố bên ngoài đến sinh trưởng và phát triển động vật (nhiệt độ, thức ăn,...).",
+        "Phân tích được khả năng điều khiển sự sinh trưởng và phát triển ở động vật.",
+        "Vận dụng được hiểu biết về sinh trưởng và phát triển ở động vật vào thực tiễn (ví dụ: đề xuất được một số biện pháp hợp lí trong chăn nuôi nhằm tăng nhanh sự sinh trưởng và phát triển của vật nuôi; tiêu diệt côn trùng, muỗi;...).",
+        "Phân tích đặc điểm tuổi dậy thì ở người và ứng dụng hiểu biết về tuổi dậy thì để bảo vệ sức khoẻ, chăm sóc bản thân và người khác.",
+        "Thực hành quan sát được quá trình biến thái ở động vật (tằm, ếch nhái,...)."
+      ]
+    },
+    "CHƯƠNG 4. SINH SẢN Ở SINH VẬT": {
+      "Bài 17. Khái quát về sinh sản ở sinh vật": [
+        "Phát biểu được khái niệm sinh sản, sinh sản vô tính, sinh sản hữu tính.",
+        "Nêu được các dấu hiệu đặc trưng của sinh sản ở sinh vật (vật chất di truyền, truyền đạt vật chất di truyền, hình thành cơ thể mới, điều hoà sinh sản).",
+        "Trình bày được vai trò của sinh sản đối với sinh vật.",
+        "Phân biệt được các hình thức sinh sản ở sinh vật (sinh sản vô tính, sinh sản hữu tính)."
+      ],
+      "Bài 18. Sinh sản ở thực vật": [
+        "Phân biệt được các hình thức sinh sản vô tính ở thực vật (sinh sản bằng bào tử, sinh sản sinh dưỡng).",
+        "Trình bày được các phương pháp nhân giống vô tính ở thực vật.",
+        "Trình bày được ứng dụng của sinh sản vô tính ở thực vật trong thực tiễn.",
+        "So sánh được sinh sản hữu tính với sinh sản vô tính ở thực vật.",
+        "Trình bày được quá trình sinh sản hữu tính ở thực vật có hoa: nêu được cấu tạo chung của hoa; trình bày được quá trình hình thành hạt phấn, túi phôi, thụ phấn, thụ tinh, hình thành hạt, quả.",
+        "Thực hành được nhân giống cây bằng sinh sản sinh dưỡng; thụ phấn cho cây (thụ phấn hoặc quan sát thụ phấn ở ngô)."
+      ],
+      "Bài 19. Sinh sản ở động vật": [
+        "Phân biệt được các hình thức sinh sản vô tính ở động vật.",
+        "Phân biệt được các hình thức sinh sản hữu tính ở động vật.",
+        "Trình bày được quá trình sinh sản hữu tính ở động vật (lấy ví dụ ở người): hình thành tinh trùng, trứng; thụ tinh tạo hợp tử; phát triển phôi thai; sự đẻ.",
+        "Phân tích được cơ chế điều hoà sinh sản ở động vật.",
+        "Trình bày được một số ứng dụng về điều khiển sinh sản ở động vật và sinh đẻ có kế hoạch ở người.",
+        "Nêu được một số thành tựu thụ tinh trong ống nghiệm.",
+        "Trình bày được các biện pháp tránh thai."
+      ]
+    },
+    "CHƯƠNG 5. MỐI QUAN HỆ GIỮA CÁC QUÁ TRÌNH SINH LÍ VÀ MỘT SỐ NGÀNH NGHỀ LIÊN QUAN": {
+      "Bài 20. Mối quan hệ giữa các quá trình sinh lí trong cơ thể": [
+        "Trình bày được mối quan hệ giữa các quá trình sinh lí trong cơ thể. Từ đó chứng minh được cơ thể là một hệ thống mở tự điều chỉnh."
+      ],
+      "Bài 21. Một số ngành nghề liên quan đến sinh học cơ thể": [
+        "Nêu được một số ngành nghề liên quan đến sinh học cơ thể và triển vọng của các ngành nghề đó trong tương lai."
+      ]
+    },
+    "CHUYÊN ĐỀ HỌC TẬP": {
+      "Chuyên đề 11.1: Dinh dưỡng khoáng – tăng năng suất cây trồng và nông nghiệp sạch": [
+        "Nêu được khái niệm nông nghiệp sạch.",
+        "Phân tích được các nguyên tắc sử dụng khoáng trong việc tăng năng suất cây trồng (phù hợp thời vụ, giai đoạn sinh trưởng, phát triển, hàm lượng, phối hợp khoáng,...).",
+        "Phân tích được một số biện pháp kĩ thuật sử dụng dinh dưỡng khoáng nhằm tạo nền nông nghiệp sạch. Lấy được ví dụ minh hoạ.",
+        "Trình bày được mô hình thuỷ canh theo hướng phát triển nông nghiệp sạch.",
+        "Thực hiện được dự án: Điều tra sử dụng phân bón ở địa phương hoặc thực hành trồng cây với các kĩ thuật bón phân phù hợp.",
+        "Làm được thí nghiệm chứng minh tác dụng của loại phân bón, cách bón, hàm lượng đối với cây trồng."
+      ],
+      "Chuyên đề 11.2: Một số bệnh dịch ở người và cách phòng, chống": [
+        "Kể tên được một số bệnh và tác nhân gây bệnh (vi khuẩn, virus,...).",
+        "Trình bày được một số nguyên nhân lây nhiễm, gây dịch bệnh ở người (ví dụ: vệ sinh cơ thể không đúng cách, nhà cửa không sạch sẽ, ô nhiễm môi trường, vệ sinh giao tiếp với người bệnh không đúng cách,...).",
+        "Phân tích được một số biện pháp phòng chống các bệnh dịch phổ biến ở người: bệnh sốt xuất huyết; bệnh cúm; bệnh lao phổi; bệnh sởi,...",
+        "Thực hiện được các biện pháp phòng chống một số bệnh dịch phổ biến ở người.",
+        "Thực hiện được dự án: Điều tra được một số bệnh dịch phổ biến ở người và tuyên truyền phòng chống bệnh (bệnh cúm, dịch tả, sốt xuất huyết, HIV/AIDS,...)."
+      ],
+      "Chuyên đề 11.3: Vệ sinh an toàn thực phẩm": [
+        "Nêu được định nghĩa vệ sinh an toàn thực phẩm.",
+        "Phân tích được một số nguyên nhân gây ngộ độc thực phẩm. Lấy được ví dụ minh hoạ.",
+        "Phân tích được tác hại của việc mất an toàn vệ sinh thực phẩm đối với sức khoẻ con người.",
+        "Phân tích được một số biện pháp phòng và điều trị ngộ độc thực phẩm. Lấy được ví dụ minh hoạ.",
+        "Thực hiện được dự án: Điều tra về hiện trạng mất an toàn vệ sinh thực phẩm tại địa phương."
+      ]
+    }
+  },
+  "Khối 12": {
+    "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ": {
+      "Bài 1: DNA và cơ chế tái bản DNA": [
+        "Dựa vào cấu trúc hoá học của phân tử DNA, trình bày được chức năng của DNA.",
+        "Nêu được ý nghĩa của các kết cặp đặc hiệu A–T và G–C.",
+        "Phân tích được cơ chế tái bản của DNA là một quá trình tự sao thông tin di truyền từ tế bào mẹ sang tế bào con hay từ thế hệ này sang thế hệ sau."
+      ],
+      "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene": [
+        "Nêu được khái niệm và cấu trúc của gene.",
+        "Phân biệt được các loại gene dựa vào cấu trúc và chức năng.",
+        "Phân biệt được các loại RNA.",
+        "Phân tích được bản chất phiên mã thông tin di truyền là cơ chế tổng hợp RNA dựa trên DNA.",
+        "Nêu được khái niệm phiên mã ngược và ý nghĩa.",
+        "Nêu được khái niệm và các đặc điểm của mã di truyền.",
+        "Trình bày được cơ chế tổng hợp protein từ bản sao là RNA có bản chất là quá trình dịch mã.",
+        "Vẽ và giải thích được sơ đồ liên kết ba quá trình thể hiện cơ chế di truyền ở cấp phân tử là quá trình truyền đạt thông tin di truyền.",
+        "Phát biểu được khái niệm hệ gene.",
+        "Trình bày được một số thành tựu và ứng dụng của việc giải mã hệ gene người."
+      ],
+      "Bài 3: Điều hoà biểu hiện gene": [
+        "Trình bày được thí nghiệm trên operon Lac của E.coli.",
+        "Phân tích được ý nghĩa của điều hoà biểu hiện của gene trong tế bào và trong quá trình phát triển cá thể.",
+        "Nêu được các ứng dụng của điều hoà biểu hiện gene."
+      ],
+      "Bài 4: Đột biến gene": [
+        "Nêu được khái niệm đột biến gene.",
+        "Phân biệt được các dạng đột biến gene.",
+        "Phân tích được nguyên nhân, cơ chế phát sinh của đột biến gene.",
+        "Trình bày được vai trò của đột biến gene trong tiến hoá, trong chọn giống và trong nghiên cứu di truyền."
+      ],
+      "Bài 5: Công nghệ di truyền": [
+        "Nêu được khái niệm, nguyên lí và một số thành tựu của công nghệ DNA tái tổ hợp.",
+        "Nêu được khái niệm, nguyên lí và một số thành tựu tạo thực vật và động vật biến đổi gene.",
+        "Tranh luận, phản biện được về việc sản xuất và sử dụng sản phẩm biến đổi gene và đạo đức sinh học."
+      ],
+      "Bài 6: Thực hành: Tách chiết DNA": [
+        "Thực hành tách chiết được DNA."
+      ]
+    },
+    "CHƯƠNG 2. DI TRUYỀN NHIỄM SẮC THỂ": {
+      "Bài 7: Cấu trúc và chức năng của nhiễm sắc thể": [
+        "Dựa vào sơ đồ (hoặc hình ảnh), trình bày được cấu trúc siêu hiển vi của nhiễm sắc thể.",
+        "Mô tả được cách sắp xếp các gene trên nhiễm sắc thể, mỗi gene định vị tại mỗi vị trí xác định gọi là locus.",
+        "Trình bày được ý nghĩa của nguyên phân, giảm phân và thụ tinh trong nghiên cứu di truyền. Từ đó, giải thích được nguyên phân, giảm phân và thụ tinh quyết định quy luật vận động và truyền thông tin di truyền của các gene qua các thế hệ tế bào và cá thể.",
+        "Phân tích được sự vận động của nhiễm sắc thể (tự nhân đôi, phân li, tổ hợp, tái tổ hợp) trong nguyên phân, giảm phân và thụ tinh là cơ sở của sự vận động của gene được thể hiện trong các quy luật di truyền, biến dị tổ hợp và biến dị số lượng nhiễm sắc thể.",
+        "Trình bày được nhiễm sắc thể là vật chất di truyền."
+      ],
+      "Bài 8: Học thuyết di truyền của Mendel": [
+        "Nêu được bối cảnh ra đời thí nghiệm của Mendel.",
+        "Trình bày được cách bố trí và tiến hành thí nghiệm của Mendel.",
+        "Nêu được tính quy luật của hiện tượng di truyền và giải thích thí nghiệm của Mendel.",
+        "Trình bày được cơ sở tế bào học của các thí nghiệm của Mendel dựa trên mối quan hệ giữa nguyên phân, giảm phân và thụ tinh.",
+        "Nêu được vì sao các quy luật di truyền của Mendel đặt nền móng cho di truyền học hiện đại."
+      ],
+      "Bài 9: Mở rộng học thuyết của Mendel": [
+        "Giải thích được sản phẩm của các allele của cùng một gene và của các gene khác nhau có thể tương tác với nhau quy định tính trạng."
+      ],
+      "Bài 10: Di truyền giới tính và di truyền liên kết với giới tính": [
+        "Nêu được bối cảnh ra đời thí nghiệm của Morgan.",
+        "Trình bày được cách bố trí thí nghiệm của Morgan, qua đó nêu được khái niệm di truyền liên kết với giới tính.",
+        "Nêu được khái niệm nhiễm sắc thể giới tính; di truyền giới tính.",
+        "Phân tích được cơ chế di truyền xác định giới tính.",
+        "Giải thích được tỉ lệ lí thuyết giới tính trong tự nhiên thường là 1 : 1.",
+        "Trình bày được quan điểm của bản thân về việc điều khiển giới tính ở người theo ý muốn.",
+        "Vận dụng những hiểu biết về di truyền giới tính và liên kết với giới tính để giải thích các vấn đề trong thực tiễn (ví dụ: điều khiển giới tính trong chăn nuôi, phát hiện bệnh do rối loạn cơ chế phân li, tổ hợp nhiễm sắc thể giới tính,...)."
+      ],
+      "Bài 11: Liên kết gene và hoán vị gene": [
+        "Trình bày được cách bố trí và tiến hành thí nghiệm của Morgan, từ đó phát biểu được khái niệm liên kết gene.",
+        "Phân tích được cơ sở tế bào học và ý nghĩa của liên kết gene.",
+        "Trình bày được thí nghiệm của Morgan, từ đó phát biểu được khái niệm hoán vị gene.",
+        "Phân tích được cơ sở tế bào học và ý nghĩa của hoán vị gen.",
+        "Trình bày được phương pháp lập bản đồ di truyền (thông qua trao đổi chéo).",
+        "Nêu được ý nghĩa của việc lập bản đồ di truyền.",
+        "Nêu được quan điểm của Mendel và Morgan về tính quy luật của hiện tượng di truyền."
+      ],
+      "Bài 12: Đột biến nhiễm sắc thể": [
+        "Phát biểu được khái niệm đột biến nhiễm sắc thể.",
+        "Trình bày được nguyên nhân và cơ chế phát sinh đột biến cấu trúc nhiễm sắc thể.",
+        "Phân biệt được các dạng đột biến cấu trúc nhiễm sắc thể.",
+        "Trình bày được nguyên nhân và cơ chế phát sinh đột biến số lượng nhiễm sắc thể.",
+        "Phân biệt được các dạng đột biến số lượng nhiễm sắc thể. Lấy được ví dụ minh hoạ.",
+        "Phân tích được tác hại của một số dạng đột biến nhiễm sắc thể đối với sinh vật.",
+        "Trình bày được vai trò của đột biến nhiễm sắc thể trong tiến hoá, trong chọn giống và trong nghiên cứu di truyền.",
+        "Phân tích được mối quan hệ giữa di truyền và biến dị."
+      ],
+      "Bài 13: Di truyền học người và di truyền y học": [
+        "Nêu được khái niệm và vai trò di truyền học người, di truyền y học.",
+        "Nêu được một số phương pháp nghiên cứu di truyền người (tập trung vào phương pháp phả hệ).",
+        "Xây dựng được phả hệ để xác định được sự di truyền tính trạng trong gia đình.",
+        "Nêu được khái niệm y học tư vấn.",
+        "Trình bày được cơ sở của y học tư vấn.",
+        "Giải thích được vì sao cần đến cơ sở tư vấn hôn nhân gia đình trước khi kết hôn và sàng lọc trước sinh.",
+        "Nêu được khái niệm liệu pháp gene.",
+        "Vận dụng hiểu biết về liệu pháp gene để giải thích việc chữa trị các bệnh di truyền.",
+        "Trình bày được một số thành tựu và ứng dụng của liệu pháp gene."
+      ],
+      "Bài 14: Thực hành: Quan sát một số dạng đột biến nhiễm sắc thể": [
+        "Thực hành, quan sát được đột biến nhiễm sắc thể trên tiêu bản cố định và tạm thời; tìm hiểu được tác hại gây đột biến ở người của một số chất độc (dioxin, thuốc diệt cỏ 2,4D,...)."
+      ]
+    },
+    "CHƯƠNG 3. MỞ RỘNG HỌC THUYẾT DI TRUYỀN NHIỄM SẮC THỂ": {
+      "Bài 15: Di truyền gene ngoài nhân": [
+        "Trình bày được bối cảnh ra đời thí nghiệm của Correns.",
+        "Trình bày được thí nghiệm chứng minh di truyền gene ngoài nhân của Correns, từ đó giải thích được gene không những tồn tại trong nhân mà còn tồn tại ngoài nhân (trong các bào quan như ti thể, lạp thể).",
+        "Trình bày được đặc điểm di truyền của gene ngoài nhân và một số ứng dụng."
+      ],
+      "Bài 16: Tương tác giữa kiểu gene với môi trường và thành tựu chọn giống": [
+        "Phân tích được sự tương tác kiểu gene và môi trường.",
+        "Nêu được khái niệm mức phản ứng. Lấy được các ví dụ minh hoạ.",
+        "Trình bày được bản chất di truyền là di truyền mức phản ứng.",
+        "Vận dụng được hiểu biết về thường biến và mức phản ứng của một kiểu gene giải thích một số ứng dụng trong thực tiễn (tạo và chọn giống, kĩ thuật chăn nuôi, trồng trọt,...).",
+        "Nêu được một số thành tựu chọn, tạo giống cây trồng.",
+        "Nêu được một số thành tựu chọn, tạo giống vật nuôi."
+      ],
+      "Bài 17: Thực hành: Thí nghiệm về thường biến ở cây trồng": [
+        "Thực hành trồng cây chứng minh được thường biến."
+      ]
+    },
+    "CHƯƠNG 4. DI TRUYỀN QUẦN THỂ": {
+      "Bài 18: Di truyền quần thể": [
+        "Phát biểu được khái niệm quần thể (từ góc độ di truyền học). Lấy được ví dụ minh hoạ.",
+        "Phát biểu được khái niệm di truyền quần thể.",
+        "Trình bày được các đặc trưng di truyền của quần thể (tần số của các allele, tần số của các kiểu gene).",
+        "Trình bày được ảnh hưởng của tự thụ phấn, giao phối gần, ngẫu phối chi phối tần số của các allele và thành phần kiểu gene của một quần thể.",
+        "Nêu được cấu trúc di truyền của quần thể ngẫu phối: mô tả được trạng thái cân bằng di truyền của quần thể.",
+        "Phân tích được cấu trúc di truyền của quần thể tự thụ phấn và quần thể giao phối gần.",
+        "Trình bày được định luật Hardy – Weinberg và điều kiện nghiệm đúng.",
+        "Giải thích một số vấn đề thực tiễn: vấn đề hôn nhân gia đình; vấn đề cho cây tự thụ phấn, động vật giao phối gần giảm năng suất, chất lượng."
+      ]
+    },
+    "CHƯƠNG 5. BẰNG CHỨNG VÀ CÁC HỌC THUYẾT TIẾN HÓA": {
+      "Bài 19: Các bằng chứng tiến hoá": [
+        "Trình bày được các bằng chứng tiến hoá: bằng chứng hoá thạch, giải phẫu so sánh, tế bào học và sinh học phân tử."
+      ],
+      "Bài 20: Quan niệm của Darwin về chọn lọc tự nhiên và hình thành loài": [
+        "Nêu được phương pháp mà Darwin đã sử dụng để xây dựng học thuyết về chọn lọc tự nhiên và hình thành loài (quan sát, hình thành giả thuyết, kiểm chứng giả thuyết)."
+      ],
+      "Bài 21: Học thuyết tiến hoá tổng hợp hiện đại": [
+        "Nêu được khái niệm tiến hoá nhỏ và quần thể là đơn vị tiến hoá nhỏ.",
+        "Trình bày được các nhân tố tiến hoá (đột biến, di – nhập gene, chọn lọc tự nhiên, yếu tố ngẫu nhiên, giao phối không ngẫu nhiên).",
+        "Phát biểu được khái niệm thích nghi và trình bày được cơ chế hình thành đặc điểm thích nghi.",
+        "Giải thích được các đặc điểm thích nghi chỉ hợp lí tương đối. Lấy được ví dụ minh hoạ.",
+        "Phát biểu được khái niệm loài sinh học và cơ chế hình thành loài."
+      ],
+      "Bài 22: Tiến hoá lớn và quá trình phát sinh chủng loại": [
+        "Phát biểu được khái niệm tiến hoá lớn.",
+        "Phân biệt được tiến hoá lớn và tiến hoá nhỏ.",
+        "Dựa vào sơ đồ cây sự sống, trình bày được sinh giới có nguồn gốc chung và phân tích được sự phát sinh chủng loại là kết quả của tiến hoá.",
+        "Làm được bài tập sưu tầm tài liệu về sự phát sinh và phát triển của sinh giới hoặc của loài người.",
+        "Vẽ được sơ đồ ba giai đoạn phát sinh sự sống trên Trái Đất (tiến hoá hoá học, tiến hoá tiền sinh học, tiến hoá sinh học).",
+        "Dựa vào sơ đồ, trình bày được các đại địa chất và biến cố lớn thể hiện sự phát triển của sinh vật trong các đại đó.",
+        "Nêu được một số minh chứng về tiến hoá lớn.",
+        "Vẽ được sơ đồ các giai đoạn chính trong quá trình phát sinh loài người; nêu được loài người hiện nay (H. sapiens) đã tiến hoá từ loài vượn người (Australopithecus) qua các giai đoạn trung gian."
+      ]
+    },
+    "CHƯƠNG 6. MÔI TRƯỜNG VÀ SINH THÁI HỌC QUẦN THỂ": {
+      "Bài 23: Môi trường và các nhân tố sinh thái": [
+        "Phát biểu được khái niệm môi trường sống của sinh vật.",
+        "Nêu được khái niệm nhân tố sinh thái.",
+        "Phân biệt được các nhân tố sinh thái vô sinh và hữu sinh. Lấy được ví dụ về tác động của các nhân tố sinh thái lên đời sống sinh vật và thích nghi của sinh vật với các nhân tố đó.",
+        "Trình bày được các quy luật về tác động của các nhân tố sinh thái lên đời sống sinh vật (giới hạn sinh thái; tác động tổng hợp của các nhân tố sinh thái; tác động không đồng đều của các nhân tố sinh thái).",
+        "Phân tích được những thay đổi của sinh vật có thể tác động làm thay đổi môi trường sống của chúng.",
+        "Phát biểu được khái niệm nhịp sinh học; giải thích được nhịp sinh học chính là sự thích nghi của sinh vật với những thay đổi có tính chu kì của môi trường.",
+        "Tìm hiểu được nhịp sinh học của chính cơ thể mình."
+      ],
+      "Bài 24: Sinh thái học quần thể": [
+        "Phát biểu được khái niệm quần thể sinh vật (dưới góc độ sinh thái học). Lấy được ví dụ minh hoạ.",
+        "Phân tích được các mối quan hệ hỗ trợ và cạnh tranh trong quần thể. Lấy được ví dụ minh hoạ.",
+        "Trình bày được các đặc trưng cơ bản của quần thể sinh vật (số lượng cá thể, kích thước quần thể, tỉ lệ giới tính, nhóm tuổi, kiểu phân bố, mật độ cá thể). Lấy được ví dụ chứng minh sự ổn định của quần thể phụ thuộc sự ổn định của các đặc trưng đó.",
+        "Phân biệt được các kiểu tăng trưởng quần thể sinh vật (tăng trưởng theo tiềm năng sinh học và tăng trưởng trong môi trường có nguồn sống bị giới hạn).",
+        "Nêu được các yếu tố ảnh hưởng tới tăng trưởng quần thể.",
+        "Trình bày được các kiểu biến động số lượng cá thể của quần thể.",
+        "Giải thích được cơ chế điều hoà mật độ của quần thể.",
+        "Phân biệt được ba kiểu đường cong sống sót của quần thể.",
+        "Giải thích được quần thể là một cấp độ tổ chức sống.",
+        "Nêu được các đặc điểm tăng trưởng của quần thể người; phân tích được hậu quả của tăng trưởng dân số quá nhanh.",
+        "Phân tích được các ứng dụng hiểu biết về quần thể trong thực tiễn (trồng trọt, chăn nuôi, bảo tồn,...)."
+      ],
+      "Bài 25: Thực hành: Xác định một số đặc trưng của quần thể": [
+        "Thực hành tính được kích thước của quần thể thực vật và các động vật ít di chuyển; tính được kích thước của quần thể động vật theo phương pháp “bắt, đánh dấu, thả, bắt lại”."
+      ]
+    },
+    "CHƯƠNG 7. SINH THÁI HỌC QUẦN XÃ": {
+      "Bài 26: Quần xã sinh vật": [
+        "Phát biểu được khái niệm quần xã sinh vật.",
+        "Phân tích được các đặc trưng cơ bản của quần xã: thành phần loài (loài ưu thế, loài đặc trưng, loài chủ chốt); chỉ số đa dạng và độ phong phú trong quần xã; cấu trúc không gian; cấu trúc chức năng dinh dưỡng.",
+        "Giải thích được sự cân bằng của quần xã được bảo đảm bởi sự cân bằng chỉ số các đặc trưng đó.",
+        "Trình bày được khái niệm và phân biệt được các mối quan hệ giữa các loài trong quần xã (cạnh tranh, hợp tác, cộng sinh, hội sinh, ức chế, kí sinh, động vật ăn thực vật, vật ăn thịt con mồi).",
+        "Trình bày được khái niệm ổ sinh thái và vai trò của cạnh tranh trong việc hình thành ổ sinh thái.",
+        "Phân tích được tác động của việc du nhập các loài ngoại lai hoặc giảm loài trong cấu trúc quần xã đến trạng thái cân bằng của hệ sinh thái. Lấy được ví dụ minh hoạ.",
+        "Giải thích được quần xã là một cấp độ tổ chức sống và trình bày được một số biện pháp bảo vệ quần xã."
+      ],
+      "Bài 27: Thực hành: Tìm hiểu một số đặc trưng cơ bản của quần xã trong tự nhiên": [
+        "Thực hành: Tính được độ phong phú của loài trong quần xã; tính được độ đa dạng của quần xã theo chỉ số Shannon."
+      ],
+      "Bài 28: Hệ sinh thái": [
+        "Phát biểu được khái niệm hệ sinh thái.",
+        "Phân biệt được các thành phần cấu trúc của hệ sinh thái và các kiểu hệ sinh thái chủ yếu của Trái Đất, bao gồm các hệ sinh thái tự nhiên (hệ sinh thái trên cạn, dưới nước) và các hệ sinh thái nhân tạo."
+      ],
+      "Bài 29: Trao đổi vật chất và chuyển hoá năng lượng trong hệ sinh thái": [
+        "Phân tích được quá trình trao đổi vật chất và chuyển hoá năng lượng trong hệ sinh thái.",
+        "Trình bày được khái niệm chuỗi thức ăn, các loại chuỗi thức ăn, lưới thức ăn, bậc dinh dưỡng.",
+        "Vẽ được sơ đồ chuỗi và lưới thức ăn trong quần xã.",
+        "Trình bày được dòng năng lượng trong một hệ sinh thái (bao gồm: phân bố năng lượng trên Trái Đất, sơ đồ khái quát về dòng năng lượng trong hệ sinh thái, sơ đồ khái quát năng lượng chuyển qua các bậc dinh dưỡng trong hệ sinh thái).",
+        "Nêu được khái niệm hiệu suất sinh thái (sản lượng sơ cấp, sản lượng thứ cấp); tháp sinh thái.",
+        "Phân biệt được các dạng tháp sinh thái. Tính được hiệu suất sinh thái của một hệ sinh thái.",
+        "Giải thích được ý nghĩa của nghiên cứu hiệu suất sinh thái và tháp sinh thái trong thực tiễn."
+      ],
+      "Bài 30: Diễn thế sinh thái": [
+        "Phân tích được sự biến động của hệ sinh thái, bao gồm: diễn thế sinh thái, sự ấm lên toàn cầu, phì dưỡng, sa mạc hoá.",
+        "Nêu được khái niệm diễn thế sinh thái.",
+        "Phân biệt được các dạng diễn thế sinh thái, từ đó nêu được dạng nào có bản chất là sự tiến hoá thiết lập trạng thái thích nghi cân bằng của quần xã.",
+        "Phân tích được nguyên nhân và tầm quan trọng của diễn thế sinh thái trong tự nhiên và trong thực tiễn.",
+        "Phân tích được diễn thế sinh thái ở một hệ sinh thái tại địa phương.",
+        "Đề xuất được một số biện pháp bảo tồn hệ sinh thái đó.",
+        "Nêu được một số hiện tượng ảnh hưởng đến hệ sinh thái như: sự ấm lên toàn cầu; sự phì dưỡng; sa mạc hoá.",
+        "Giải thích được vì sao các hiện tượng đó vừa tác động đến hệ sinh thái, vừa là nguyên nhân của sự mất cân bằng của hệ sinh thái."
+      ],
+      "Bài 31: Sinh quyển, khu sinh học và chu trình sinh – địa – hoá": [
+        "Phát biểu được khái niệm Sinh quyển; giải thích được Sinh quyển là một cấp độ tổ chức sống lớn nhất hành tinh; trình bày được một số biện pháp bảo vệ Sinh quyển.",
+        "Phát biểu được khái niệm khu sinh học.",
+        "Trình bày được đặc điểm của các khu sinh học trên cạn chủ yếu và các khu sinh học nước ngọt, khu sinh học nước mặn trên Trái Đất.",
+        "Trình bày được các biện pháp bảo vệ tài nguyên sinh học của các khu sinh học đó.",
+        "Phát biểu được khái niệm chu trình sinh – địa – hoá các chất.",
+        "Vẽ được sơ đồ khái quát chu trình trao đổi chất trong tự nhiên.",
+        "Trình bày được chu trình sinh – địa – hoá của một số chất: nước, carbon, nitơ (nitrogen) và ý nghĩa sinh học của các chu trình đó, đồng thời vận dụng kiến thức về các chu trình đó vào giải thích các vấn đề của thực tiễn."
+      ],
+      "Bài 32: Thực hành: Thiết kế một hệ sinh thái nhân tạo": [
+        "Thực hành: Thiết kế được một bể nuôi cá cảnh vận dụng hiểu biết hệ sinh thái hoặc thiết kế được hệ sinh thái thuỷ sinh, hệ sinh thái trên cạn."
+      ]
+    },
+    "CHƯƠNG 8. SINH THÁI HỌC PHỤC HỒI, BẢO TỒN VÀ PHÁT TRIỂN BỀN VỮNG": {
+      "Bài 33: Sinh thái học phục hồi và bảo tồn đa dạng sinh vật": [
+        "Nêu được khái niệm sinh thái học phục hồi, bảo tồn.",
+        "Giải thích được vì sao cần phục hồi, bảo tồn các hệ sinh thái tự nhiên.",
+        "Trình bày được một số phương pháp phục hồi hệ sinh thái.",
+        "Thực hiện được bài tập (hoặc dự án, đề tài) về thực trạng bảo tồn hệ sinh thái ở địa phương và đề xuất giải pháp bảo tồn."
+      ],
+      "Bài 34: Phát triển bền vững": [
+        "Trình bày được khái niệm phát triển bền vững.",
+        "Phân tích được khái quát về tác động giữa kinh tế – xã hội – môi trường tự nhiên.",
+        "Phân tích được vai trò và các biện pháp sử dụng hợp lí tài nguyên thiên nhiên (đất, nước, rừng, năng lượng).",
+        "Phân tích được những biện pháp chủ yếu hạn chế gây ô nhiễm môi trường.",
+        "Trình bày được khái niệm và các biện pháp bảo tồn đa dạng sinh học.",
+        "Nêu được khái niệm và vai trò phát triển nông nghiệp bền vững.",
+        "Trình bày được các vấn đề dân số hiện nay và vai trò của chính sách dân số, kế hoạch hoá gia đình trong phát triển bền vững.",
+        "Phân tích được vai trò của giáo dục bảo vệ môi trường đối với phát triển bền vững đất nước.",
+        "Đề xuất các hoạt động bản thân có thể làm được nhằm góp phần phát triển bền vững."
+      ]
+    },
+    "CHUYÊN ĐỀ HỌC TẬP": {
+      "Chuyên đề 12.1: Sinh học phân tử": [
+        "Nêu được khái niệm sinh học phân tử.",
+        "Trình bày được một số thành tựu hiện đại về lí thuyết và ứng dụng của sinh học phân tử.",
+        "Phân tích được các nguyên tắc ứng dụng sinh học phân tử trong thực tiễn.",
+        "Nêu được các nguyên lí của phương pháp tách chiết DNA từ tế bào.",
+        "Dựa vào sơ đồ, mô tả được các bước trong công nghệ gene.",
+        "Trình bày được các bước tạo thực vật chuyển gene và tạo động vật chuyển gene. Lấy được ví dụ minh hoạ.",
+        "Giải thích được cơ sở khoa học chuyển gene và vì sao phải sử dụng vector để truyền gene từ tế bào này sang tế bào khác.",
+        "Thực hiện được dự án hoặc đề tài tìm hiểu về các sản phẩm chuyển gene.",
+        "Làm được tập san các bài viết, tranh ảnh về công nghệ chuyển gene.",
+        "Thu thập được các thông tin đánh giá về triển vọng của công nghệ gene trong tương lai.",
+        "Thực hiện được các kĩ năng: làm báo cáo, thuyết trình, tập san, thiết kế video."
+      ],
+      "Chuyên đề 12.2: Kiểm soát sinh học": [
+        "Nêu được khái niệm kiểm soát sinh học.",
+        "Phân tích được vai trò của kiểm soát sinh học.",
+        "Phân tích được cơ sở của kiểm soát sinh học.",
+        "Trình bày được một số biện pháp kiểm soát sinh học (bảo vệ các loài thiên địch; sử dụng hợp lí thuốc trừ sâu, phân bón).",
+        "Thực hành: Sưu tầm hoặc điều tra được ứng dụng kiểm soát sinh học tại địa phương."
+      ],
+      "Chuyên đề 12.3: Sinh thái nhân văn": [
+        "Nêu được khái niệm sinh thái nhân văn.",
+        "Phân tích được giá trị của sinh thái nhân văn trong việc phát triển bền vững.",
+        "Phân tích được giá trị của sinh thái nhân văn trong một số lĩnh vực như: nông nghiệp; phát triển đô thị; bảo tồn và phát triển; thích ứng với biến đổi khí hậu.",
+        "Thực hiện dự án: Điều tra tìm hiểu về một trong các lĩnh vực sinh thái nhân văn tại địa phương."
+      ]
+    }
+  }
+}

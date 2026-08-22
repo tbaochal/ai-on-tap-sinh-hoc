@@ -1,0 +1,139 @@
+[
+  {
+    "id": "cf5e3829-3997-4d7b-8c57-54688ccafa2d",
+    "ten_dot": "đề thử",
+    "mau_id": "e2542432-b092-4dee-b892-c6dced7e2cde",
+    "ten_mau": "Đề ôn tập / kiểm tra",
+    "mau_phien_ban": 1,
+    "khoi": "Khối 12",
+    "lop_ap_dung": "12A7",
+    "ma_tran_snapshot": [
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 6: Thực hành: Tách chiết DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 6: Thực hành: Tách chiết DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      }
+    ],
+    "thoi_gian_lam_phut": 25,
+    "mo_tu_iso": "2026-08-22T09:36:00+07:00",
+    "dong_luc_iso": "2026-08-22T10:36:00+07:00",
+    "mo_dap_an": false,
+    "ngay_tao": "22/08/2026 09:33",
+    "ngay_cap_nhat": ""
+  }
+]

@@ -1,0 +1,402 @@
+[
+  {
+    "id": "e2542432-b092-4dee-b892-c6dced7e2cde",
+    "ten_mau": "Đề ôn tập / kiểm tra",
+    "che_do": "Ma trận GV",
+    "khoi": "Khối 12",
+    "thoi_gian": 25,
+    "ma_tran": [
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 6: Thực hành: Tách chiết DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 6: Thực hành: Tách chiết DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      }
+    ],
+    "ngay_tao": "22/08/2026 08:41"
+  },
+  {
+    "id": "0503c145-93d8-4d48-917a-6920cc7bb781",
+    "ten_mau": "đề thử",
+    "che_do": "Ma trận GV",
+    "khoi": "Khối 12",
+    "thoi_gian": 30,
+    "ma_tran": [
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 6: Thực hành: Tách chiết DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trả lời ngắn",
+        "Số câu": 1
+      }
+    ],
+    "ngay_tao": "22/08/2026 08:48"
+  },
+  {
+    "id": "85b02d3a-c716-4565-9f15-59353297100b",
+    "ten_mau": "đề thử",
+    "che_do": "Ma trận GV",
+    "khoi": "Khối 12",
+    "thoi_gian": 30,
+    "ma_tran": [
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 4
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 6: Thực hành: Tách chiết DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn",
+        "Số câu": 2
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 1: DNA và cơ chế tái bản DNA",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 2: Gene, quá trình truyền đạt thông tin di truyền và hệ gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Đúng / Sai",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trả lời ngắn",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 5: Công nghệ di truyền",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trả lời ngắn",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 4: Đột biến gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trả lời ngắn",
+        "Số câu": 1
+      },
+      {
+        "Khối": "Khối 12",
+        "Chương": "CHƯƠNG 1. DI TRUYỀN PHÂN TỬ",
+        "Bài": "Bài 3: Điều hoà biểu hiện gene",
+        "YCCĐ": "Tất cả",
+        "Mức độ": "Tất cả",
+        "Thành phần năng lực": "Tất cả",
+        "Dạng câu hỏi": "Trả lời ngắn",
+        "Số câu": 1
+      }
+    ],
+    "ngay_tao": "22/08/2026 08:52"
+  }
+]

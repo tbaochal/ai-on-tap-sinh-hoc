@@ -1,0 +1,28 @@
+# Không đưa khóa bí mật lên GitHub
+.streamlit/secrets.toml
+.env
+.env.*
+
+# File tạm Python
+__pycache__/
+*.pyc
+
+# Môi trường Python
+.venv/
+venv/
+
+# Dữ liệu riêng của học sinh - không đưa lên GitHub
+danh_sach_hoc_sinh.json
+lich_su_luyen_tap_hoc_sinh.json
+ho_so_nang_luc_hoc_sinh.json
+ket_qua_hoc_sinh.json
+
+# File sao lưu code
+app_backup.py
+# File thử nghiệm - có thể chứa khóa API
+test_ai.py
+test_gemini.py
+
+# File sao lưu
+yccd_backup.json
+sao_luu_ngan_hang/
