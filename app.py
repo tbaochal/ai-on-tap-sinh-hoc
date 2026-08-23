@@ -28,6 +28,7 @@ from muc_do_nhan_thuc import DONG_TU_MUC_DO, xac_dinh_muc_do
 
 # ==========================================================
 # CẤU HÌNH
+# Bản TRẠM SINH HỌC: giữ nguyên đồng bộ ngân hàng + ảnh câu hỏi + cập nhật lời giải.
 # ==========================================================
 st.set_page_config(
     page_title="Trạm Sinh học",
@@ -528,7 +529,11 @@ DEFAULT_GV_PROFILE = {
     "chuc_vu": "Giáo viên",
     "don_vi": "",
     "loi_chao": "Khơi gợi tư duy khoa học, nuôi dưỡng niềm yêu thích Sinh học.",
-    "avatar_path": ""
+    "avatar_path": "",
+    # Ảnh đại diện được nhúng vào hồ sơ trên Supabase để không mất khi
+    # Streamlit Cloud restart/redeploy hoặc filesystem tạm bị reset.
+    "avatar_base64": "",
+    "avatar_mime_type": ""
 }
 
 
@@ -538,6 +543,20 @@ def doc_ho_so_giao_vien():
         saved = _doc_document_shared(GV_PROFILE_PATH, {})
         if isinstance(saved, dict):
             data.update({k: v for k, v in saved.items() if k in data})
+            # Tương thích các tên trường từng dùng ở phiên bản cũ.
+            if not str(data.get("avatar_base64", "") or "").strip():
+                data["avatar_base64"] = str(
+                    saved.get("avatar_data")
+                    or saved.get("avatar_data_base64")
+                    or saved.get("image_base64")
+                    or ""
+                ).strip()
+            if not str(data.get("avatar_mime_type", "") or "").strip():
+                data["avatar_mime_type"] = str(
+                    saved.get("avatar_mime")
+                    or saved.get("mime_type")
+                    or ""
+                ).strip()
     except Exception:
         pass
     return data
@@ -547,8 +566,68 @@ def luu_ho_so_giao_vien(profile):
     return _luu_document_shared(GV_PROFILE_PATH, profile)
 
 
-def _avatar_data_uri(path):
+def _tim_avatar_local_mac_dinh():
+    """Tìm ảnh đại diện có sẵn trong thư mục dự án để phục hồi sau deploy."""
     try:
+        if not os.path.isdir(GV_AVATAR_DIR):
+            return ""
+        uu_tien = [
+            "avatar_giao_vien.png", "avatar_giao_vien.jpg", "avatar_giao_vien.jpeg",
+            "avatar.png", "avatar.jpg", "avatar.jpeg"
+        ]
+        for ten in uu_tien:
+            p = os.path.join(GV_AVATAR_DIR, ten)
+            if os.path.isfile(p):
+                return p
+        for ten in sorted(os.listdir(GV_AVATAR_DIR)):
+            if str(ten).lower().endswith((".png", ".jpg", ".jpeg")):
+                p = os.path.join(GV_AVATAR_DIR, ten)
+                if os.path.isfile(p):
+                    return p
+    except Exception:
+        pass
+    return ""
+
+
+def _nang_cap_avatar_profile_ben_vung(profile):
+    """Tự chuyển avatar local sang base64/Supabase một lần nếu có thể."""
+    p = dict(profile or {})
+    if str(p.get("avatar_base64", "") or "").strip():
+        return p
+
+    path = str(p.get("avatar_path", "") or "").strip()
+    if not path or not os.path.exists(path):
+        path = _tim_avatar_local_mac_dinh()
+
+    if not path or not os.path.exists(path):
+        return p
+
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+        if not raw:
+            return p
+        ext = os.path.splitext(path)[1].lower()
+        p["avatar_path"] = path
+        p["avatar_base64"] = base64.b64encode(raw).decode("ascii")
+        p["avatar_mime_type"] = "image/png" if ext == ".png" else "image/jpeg"
+        # Ghi lại Supabase + local để lần restart tiếp theo không phụ thuộc filesystem.
+        luu_ho_so_giao_vien(p)
+    except Exception:
+        pass
+    return p
+
+
+def _avatar_data_uri(path="", avatar_base64="", mime_type=""):
+    """Ưu tiên avatar nhúng trong Supabase, sau đó mới fallback file local."""
+    try:
+        b64 = str(avatar_base64 or "").strip()
+        if b64:
+            if b64.startswith("data:"):
+                return b64
+            mime = str(mime_type or "").strip() or "image/jpeg"
+            return f"data:{mime};base64,{b64}"
+
         if not path or not os.path.exists(path):
             return ""
         ext = os.path.splitext(path)[1].lower()
@@ -615,8 +694,12 @@ st.markdown(
 
 
 def hien_thi_the_giao_vien_sidebar():
-    profile = doc_ho_so_giao_vien()
-    avatar_uri = _avatar_data_uri(profile.get("avatar_path"))
+    profile = _nang_cap_avatar_profile_ben_vung(doc_ho_so_giao_vien())
+    avatar_uri = _avatar_data_uri(
+        profile.get("avatar_path"),
+        profile.get("avatar_base64", ""),
+        profile.get("avatar_mime_type", "")
+    )
     if avatar_uri:
         avatar_html = f'<img class="teacher-avatar" src="{avatar_uri}" alt="Ảnh giáo viên">'
     else:
@@ -641,21 +724,49 @@ def hien_thi_the_giao_vien_sidebar():
         avatar_file = st.file_uploader("Ảnh đại diện", type=["png","jpg","jpeg"], accept_multiple_files=False, key="gv_profile_avatar")
         if st.button("💾 Lưu hồ sơ", use_container_width=True, key="gv_profile_save"):
             avatar_path = profile.get("avatar_path", "")
+            avatar_b64 = str(profile.get("avatar_base64", "") or "").strip()
+            avatar_mime = str(profile.get("avatar_mime_type", "") or "").strip()
+
             if avatar_file is not None:
+                raw_avatar = bytes(avatar_file.getbuffer())
                 ext = os.path.splitext(avatar_file.name)[1].lower()
                 if ext not in [".png", ".jpg", ".jpeg"]:
                     ext = ".jpg"
+                avatar_mime = (
+                    "image/png" if ext == ".png"
+                    else "image/jpeg"
+                )
+                avatar_b64 = base64.b64encode(raw_avatar).decode("ascii")
+
+                # Vẫn lưu local để chạy nhanh khi còn file; Supabase/base64 mới là bản bền vững.
                 avatar_path = os.path.join(GV_AVATAR_DIR, "avatar_giao_vien" + ext)
-                with open(avatar_path, "wb") as f:
-                    f.write(avatar_file.getbuffer())
+                try:
+                    with open(avatar_path, "wb") as f:
+                        f.write(raw_avatar)
+                except Exception:
+                    avatar_path = ""
+
+            # Nếu hồ sơ cũ mới chỉ có file local, tự nâng cấp sang base64 khi bấm Lưu.
+            if not avatar_b64 and avatar_path and os.path.exists(avatar_path):
+                try:
+                    with open(avatar_path, "rb") as f:
+                        raw_avatar = f.read()
+                    avatar_b64 = base64.b64encode(raw_avatar).decode("ascii")
+                    ext = os.path.splitext(avatar_path)[1].lower()
+                    avatar_mime = "image/png" if ext == ".png" else "image/jpeg"
+                except Exception:
+                    pass
+
             luu_ho_so_giao_vien({
                 "ten": ten.strip() or DEFAULT_GV_PROFILE["ten"],
                 "chuc_vu": chuc_vu.strip(),
                 "don_vi": don_vi.strip(),
                 "loi_chao": loi_chao.strip(),
-                "avatar_path": avatar_path
+                "avatar_path": avatar_path,
+                "avatar_base64": avatar_b64,
+                "avatar_mime_type": avatar_mime
             })
-            st.success("Đã lưu hồ sơ giáo viên.")
+            st.success("Đã lưu hồ sơ giáo viên và ảnh đại diện bền vững trên Supabase.")
             st.rerun()
 
 # ==========================================================
@@ -6121,81 +6232,99 @@ def luu_cau_vao_ngan_hang(question):
 # NHẬN DIỆN THƯƠNG HIỆU - TRẠM SINH HỌC
 # ==========================================================
 def hien_thi_dau_trang_tram_sinh_hoc(khu_vuc="hocsinh"):
-    """Dải nhận diện dùng chung cho giao diện học sinh và giáo viên."""
+    """Nhận diện thống nhất, nhưng tối ưu riêng cho GV và HS."""
     la_gv = str(khu_vuc).strip().lower() == "giaovien"
-    phu_de = (
-        "KHU VỰC GIÁO VIÊN • KIẾN TẠO HỌC LIỆU • THEO DÕI TIẾN BỘ"
-        if la_gv
-        else "HỌC TẬP • ÔN LUYỆN • CHINH PHỤC"
-    )
+    role = "KHU VỰC GIÁO VIÊN" if la_gv else "HỌC TẬP • ÔN LUYỆN • CHINH PHỤC"
     slogan = (
         "Kiến tạo học liệu • Theo dõi tiến bộ • Đồng hành cùng học sinh"
         if la_gv
         else "Học đúng trọng tâm • Luyện đúng năng lực • Tiến bộ mỗi ngày"
     )
+    chips = "" if la_gv else """
+        <div class="tram-bio-icons">
+            <span class="tram-bio-chip">🧬 Di truyền</span>
+            <span class="tram-bio-chip">🔬 Khám phá</span>
+            <span class="tram-bio-chip">🧫 Tế bào</span>
+            <span class="tram-bio-chip">🌿 Sự sống</span>
+        </div>
+    """
+    right_note = "QUẢN TRỊ HỌC LIỆU" if la_gv else "SINH HỌC THPT"
+
     st.markdown(
         f"""
         <style>
+        .tram-bio-shell {{ max-width:1180px; margin:0 auto 1rem auto; }}
         .tram-bio-head {{
             position:relative; overflow:hidden; border-radius:26px;
-            padding:1.35rem 1.55rem 1.2rem 1.55rem; margin:.15rem 0 1.15rem 0;
-            background:linear-gradient(118deg,#0b3b78 0%,#087f8c 52%,#16865d 100%);
-            box-shadow:0 16px 42px rgba(13,70,100,.18); color:#fff;
-            border:1px solid rgba(255,255,255,.22);
+            padding:1.35rem 1.5rem; color:#fff;
+            background:linear-gradient(120deg,#123f78 0%,#087c88 52%,#17835c 100%);
+            border:1px solid rgba(255,255,255,.16);
+            box-shadow:0 16px 38px rgba(20,67,93,.15);
+            display:grid; grid-template-columns:minmax(0,1.75fr) minmax(210px,.75fr);
+            gap:1.2rem; align-items:center;
         }}
         .tram-bio-head:before {{
-            content:""; position:absolute; width:260px; height:260px; border-radius:50%;
-            right:-90px; top:-120px; background:rgba(255,255,255,.08);
+            content:""; position:absolute; width:310px; height:310px; border-radius:50%;
+            right:-145px; top:-175px; background:rgba(255,255,255,.07);
         }}
-        .tram-bio-dna {{
-            position:absolute; right:1.2rem; bottom:-1.2rem; font-size:7.2rem;
-            opacity:.12; transform:rotate(-10deg); user-select:none;
+        .tram-bio-left, .tram-bio-right {{ position:relative; z-index:1; }}
+        .tram-bio-dept {{ font-size:.77rem; font-weight:800; letter-spacing:.055em; opacity:.90; }}
+        .tram-bio-school {{ font-size:1rem; font-weight:900; letter-spacing:.028em; margin-top:.16rem; }}
+        .tram-bio-title {{ font-size:2.45rem; font-weight:950; line-height:1.02; margin:.66rem 0 .26rem 0; }}
+        .tram-bio-role {{
+            display:inline-block; padding:.28rem .68rem; border-radius:999px;
+            background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.17);
+            font-size:.79rem; font-weight:850; letter-spacing:.035em;
         }}
-        .tram-bio-dept {{ font-size:.82rem; font-weight:750; letter-spacing:.045em; opacity:.92; }}
-        .tram-bio-school {{ font-size:1.02rem; font-weight:900; margin-top:.12rem; letter-spacing:.025em; }}
-        .tram-bio-title {{ font-size:2.18rem; font-weight:950; line-height:1.02; margin:.68rem 0 .28rem 0; }}
-        .tram-bio-sub {{ font-size:.86rem; font-weight:850; letter-spacing:.035em; opacity:.94; }}
-        .tram-bio-slogan {{ margin-top:.68rem; font-size:.96rem; font-weight:650; opacity:.97; }}
-        .tram-bio-icons {{ margin-top:.72rem; display:flex; gap:.5rem; flex-wrap:wrap; }}
+        .tram-bio-slogan {{ margin-top:.7rem; font-size:.98rem; font-weight:690; opacity:.97; }}
+        .tram-bio-icons {{ margin-top:.72rem; display:flex; gap:.46rem; flex-wrap:wrap; }}
         .tram-bio-chip {{
-            padding:.30rem .62rem; border-radius:999px; background:rgba(255,255,255,.11);
-            border:1px solid rgba(255,255,255,.18); font-size:.78rem; font-weight:700;
+            padding:.31rem .67rem; border-radius:999px; background:rgba(255,255,255,.10);
+            border:1px solid rgba(255,255,255,.17); font-size:.77rem; font-weight:730;
         }}
-        @media (max-width:700px) {{
-            .tram-bio-title {{ font-size:1.75rem; }}
-            .tram-bio-dept {{ font-size:.72rem; }}
-            .tram-bio-school {{ font-size:.90rem; }}
+        .tram-bio-right {{ display:flex; flex-direction:column; align-items:flex-end; justify-content:center; min-height:138px; }}
+        .tram-bio-dna {{ font-size:5.2rem; line-height:1; opacity:.16; user-select:none; }}
+        .tram-bio-right-note {{ margin-top:.35rem; font-size:.72rem; font-weight:850; letter-spacing:.08em; opacity:.64; }}
+        @media (max-width:820px) {{
+            .tram-bio-head {{ grid-template-columns:1fr; padding:1.18rem 1.12rem; }}
+            .tram-bio-right {{ display:none; }}
+            .tram-bio-title {{ font-size:2rem; }}
         }}
         </style>
-        <div class="tram-bio-head">
-            <div class="tram-bio-dna">🧬</div>
-            <div class="tram-bio-dept">SỞ GIÁO DỤC VÀ ĐÀO TẠO GIA LAI</div>
-            <div class="tram-bio-school">TRƯỜNG THPT SỐ 1 PHÙ CÁT</div>
-            <div class="tram-bio-title">TRẠM SINH HỌC</div>
-            <div class="tram-bio-sub">{phu_de}</div>
-            <div class="tram-bio-slogan">“{slogan}”</div>
-            <div class="tram-bio-icons">
-                <span class="tram-bio-chip">🧬 Di truyền</span>
-                <span class="tram-bio-chip">🔬 Khám phá</span>
-                <span class="tram-bio-chip">🧫 Tế bào</span>
-                <span class="tram-bio-chip">🌿 Sự sống</span>
+        <div class="tram-bio-shell">
+            <div class="tram-bio-head">
+                <div class="tram-bio-left">
+                    <div class="tram-bio-dept">SỞ GIÁO DỤC VÀ ĐÀO TẠO GIA LAI</div>
+                    <div class="tram-bio-school">TRƯỜNG THPT SỐ 1 PHÙ CÁT</div>
+                    <div class="tram-bio-title">TRẠM SINH HỌC</div>
+                    <div class="tram-bio-role">{role}</div>
+                    <div class="tram-bio-slogan">{slogan}</div>
+                    {chips}
+                </div>
+                <div class="tram-bio-right">
+                    <div class="tram-bio-dna">🧬</div>
+                    <div class="tram-bio-right-note">{right_note}</div>
+                </div>
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-
 # ==========================================================
 # TRANG CHỦ
 # ==========================================================
 def trang_chu():
-    profile = doc_ho_so_giao_vien()
+    profile = _nang_cap_avatar_profile_ben_vung(doc_ho_so_giao_vien())
     ten = str(profile.get("ten", "") or "").strip()
     chuc_vu = str(profile.get("chuc_vu", "") or "").strip()
     don_vi = str(profile.get("don_vi", "") or "").strip()
     loi_chao = str(profile.get("loi_chao", "") or "").strip()
-    avatar_uri = _avatar_data_uri(profile.get("avatar_path"))
+    avatar_uri = _avatar_data_uri(
+        profile.get("avatar_path"),
+        profile.get("avatar_base64", ""),
+        profile.get("avatar_mime_type", "")
+    )
 
     st.markdown(
         """
@@ -16696,10 +16825,15 @@ def _seed_luu_file_nguon(raw_bytes, ten_file):
 def _seed_compat_du_lieu_truc_quan(resources, ten_file=""):
     """Tạo trường tương thích renderer cũ từ tài nguyên đầu tiên, nhưng vẫn giữ toàn bộ list."""
     for res in resources or []:
-        if res.get("loai") == "anh" and str(res.get("duong_dan", "")).strip():
+        if res.get("loai") == "anh" and (
+            str(res.get("duong_dan", "") or "").strip()
+            or str(res.get("du_lieu_base64", "") or "").strip()
+        ):
             return {
                 "loai": "hinh_tu_tai_lieu",
-                "duong_dan_anh": str(res.get("duong_dan", "")).strip(),
+                "duong_dan_anh": str(res.get("duong_dan", "") or "").strip(),
+                "du_lieu_base64": str(res.get("du_lieu_base64", "") or "").strip(),
+                "mime_type": str(res.get("mime_type", "") or "").strip(),
                 "nguon": str(ten_file or res.get("nguon", "")),
                 "mo_ta": "Hình trích nguyên từ file hạt giống",
             }
@@ -23484,9 +23618,15 @@ def giao_vien():
 
     hien_thi_dau_trang_tram_sinh_hoc("giaovien")
 
-    profile = doc_ho_so_giao_vien()
+    profile = _nang_cap_avatar_profile_ben_vung(doc_ho_so_giao_vien())
     st.markdown(
-        f'<div class="section-title-card"><b>👋 Xin chào, {_html_escape(profile.get("ten"))}</b> &nbsp;•&nbsp; {_html_escape(menu)}</div>',
+        f"""
+        <div style="max-width:1180px;margin:0 auto .95rem auto;padding:.66rem .88rem;
+                    border:1px solid #e2e8f0;border-radius:14px;background:rgba(255,255,255,.88);
+                    box-shadow:0 5px 18px rgba(15,23,42,.035);color:#334155;font-weight:760;">
+            {_html_escape(menu)}
+        </div>
+        """,
         unsafe_allow_html=True
     )
 
@@ -25031,17 +25171,26 @@ def hoc_sinh():
             font-size: 2rem !important;
         }
 
-        /* Khối nhận diện/đăng nhập học sinh */
-        .hs-login-banner {
-            margin:1.0rem 0 .55rem 0; padding:1rem 1.15rem; border-radius:18px;
-            background:linear-gradient(135deg,#eef8ff,#effdf5);
-            border:2px solid #82c9b3; box-shadow:0 10px 28px rgba(15,90,100,.10);
+        /* Bố cục khu vực học sinh */
+        .tram-page-shell {
+            max-width:1160px; margin:0 auto;
         }
-        .hs-login-title { font-size:1.20rem; font-weight:900; color:#0b5f69; }
-        .hs-login-note { margin-top:.2rem; color:#5a6d7e; font-size:.92rem; }
+        .tram-guide-line {
+            max-width:1040px; margin:-.12rem auto 1.05rem auto; text-align:center;
+            color:#5b6b7f; font-weight:650; font-size:.98rem;
+        }
+        .hs-login-shell { max-width:860px; margin:0 auto .85rem auto; }
+        .hs-login-banner {
+            margin:.1rem 0 .68rem 0; padding:1rem 1.12rem; border-radius:18px;
+            background:linear-gradient(135deg,#f4f9ff,#f2fbf6);
+            border:1px solid #9fd6c5; box-shadow:0 9px 24px rgba(15,90,100,.075);
+            text-align:left;
+        }
+        .hs-login-title { font-size:1.22rem; font-weight:900; color:#0b5f69; }
+        .hs-login-note { margin-top:.25rem; color:#5a6d7e; font-size:.96rem; line-height:1.55; }
         [data-testid="stTextInput"] input {
-            border:2px solid #54a895 !important; border-radius:12px !important;
-            background:#ffffff !important; min-height:3rem !important;
+            border:2px solid #54a895 !important; border-radius:14px !important;
+            background:#ffffff !important; min-height:3.15rem !important;
         }
         [data-testid="stTextInput"] input:focus {
             border-color:#087f8c !important; box-shadow:0 0 0 .18rem rgba(8,127,140,.12) !important;
@@ -25054,7 +25203,7 @@ def hoc_sinh():
 
     hien_thi_dau_trang_tram_sinh_hoc("hocsinh")
     st.markdown(
-        '<div style="text-align:center;color:#52677f;font-weight:650;margin:-.35rem 0 1rem 0;">'
+        '<div class="tram-guide-line">'
         'Luyện theo bài • theo chương • đề giáo viên • tốt nghiệp THPT • cá nhân hóa theo kết quả của chính em'
         '</div>',
         unsafe_allow_html=True
@@ -25167,23 +25316,27 @@ def hoc_sinh():
     # ======================================================
     st.markdown(
         """
-        <div class="hs-login-banner">
-            <div class="hs-login-title">🔐 ĐĂNG NHẬP HỌC SINH</div>
-            <div class="hs-login-note">Nhập mã học sinh do giáo viên cấp để vào đúng hồ sơ học tập, bài luyện và tiến độ của em.</div>
+        <div class="hs-login-shell">
+            <div class="hs-login-banner">
+                <div class="hs-login-title">🔐 ĐĂNG NHẬP HỌC SINH</div>
+                <div class="hs-login-note">Nhập mã học sinh do giáo viên cấp để vào đúng hồ sơ học tập, bài luyện và tiến độ của em.</div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    hs_id = st.text_input(
-        "Mã học sinh",
-        value=st.session_state.get(
-            "hs_id",
-            ""
-        ),
-        placeholder="VD: 12A2-001",
-        key="hs_id"
-    )
+    _, col_hs_login, _ = st.columns([1, 2.4, 1])
+    with col_hs_login:
+        hs_id = st.text_input(
+            "Mã học sinh",
+            value=st.session_state.get(
+                "hs_id",
+                ""
+            ),
+            placeholder="VD: 12A2-001",
+            key="hs_id"
+        )
 
     if not str(
         hs_id
