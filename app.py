@@ -528,7 +528,11 @@ DEFAULT_GV_PROFILE = {
     "chuc_vu": "Giáo viên",
     "don_vi": "",
     "loi_chao": "Khơi gợi tư duy khoa học, nuôi dưỡng niềm yêu thích Sinh học.",
-    "avatar_path": ""
+    "avatar_path": "",
+    # Ảnh đại diện được lưu trực tiếp trong hồ sơ dùng chung trên Supabase
+    # dưới dạng data URI (base64). Nhờ vậy Streamlit Cloud không phụ thuộc
+    # vào ổ đĩa tạm của máy chủ và ảnh không mất khi app khởi động lại.
+    "avatar_data_uri": ""
 }
 
 
@@ -547,15 +551,44 @@ def luu_ho_so_giao_vien(profile):
     return _luu_document_shared(GV_PROFILE_PATH, profile)
 
 
-def _avatar_data_uri(path):
+def _avatar_data_uri(path_or_data):
+    """Trả data URI của avatar từ Supabase hoặc từ file local cũ."""
     try:
-        if not path or not os.path.exists(path):
+        value = str(path_or_data or "").strip()
+        if not value:
             return ""
-        ext = os.path.splitext(path)[1].lower()
+        # Bản mới: ảnh đã nằm trong hồ sơ Supabase dưới dạng data URI.
+        if value.startswith("data:image/") and ";base64," in value:
+            return value
+        # Tương thích bản cũ/local: vẫn đọc avatar_path nếu file còn tồn tại.
+        if not os.path.exists(value):
+            return ""
+        ext = os.path.splitext(value)[1].lower()
         mime = "image/png" if ext == ".png" else "image/jpeg"
-        with open(path, "rb") as f:
+        with open(value, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("ascii")
         return f"data:{mime};base64,{b64}"
+    except Exception:
+        return ""
+
+
+def _avatar_upload_to_data_uri(uploaded_file):
+    """Mã hóa ảnh upload để lưu bền vững trong app_documents/ho_so_giao_vien.json."""
+    try:
+        if uploaded_file is None:
+            return ""
+        raw = bytes(uploaded_file.getbuffer())
+        if not raw:
+            return ""
+        # Avatar chỉ là ảnh nhỏ; giới hạn để tránh làm hồ sơ JSON quá nặng.
+        if len(raw) > 4 * 1024 * 1024:
+            raise ValueError("Ảnh đại diện lớn hơn 4 MB. Vui lòng chọn ảnh nhỏ hơn.")
+        ext = os.path.splitext(str(uploaded_file.name or ""))[1].lower()
+        mime = "image/png" if ext == ".png" else "image/jpeg"
+        b64 = base64.b64encode(raw).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except ValueError:
+        raise
     except Exception:
         return ""
 
@@ -616,7 +649,7 @@ st.markdown(
 
 def hien_thi_the_giao_vien_sidebar():
     profile = doc_ho_so_giao_vien()
-    avatar_uri = _avatar_data_uri(profile.get("avatar_path"))
+    avatar_uri = _avatar_data_uri(profile.get("avatar_data_uri")) or _avatar_data_uri(profile.get("avatar_path"))
     if avatar_uri:
         avatar_html = f'<img class="teacher-avatar" src="{avatar_uri}" alt="Ảnh giáo viên">'
     else:
@@ -641,21 +674,45 @@ def hien_thi_the_giao_vien_sidebar():
         avatar_file = st.file_uploader("Ảnh đại diện", type=["png","jpg","jpeg"], accept_multiple_files=False, key="gv_profile_avatar")
         if st.button("💾 Lưu hồ sơ", use_container_width=True, key="gv_profile_save"):
             avatar_path = profile.get("avatar_path", "")
+            avatar_data_uri = str(profile.get("avatar_data_uri", "") or "").strip()
             if avatar_file is not None:
-                ext = os.path.splitext(avatar_file.name)[1].lower()
-                if ext not in [".png", ".jpg", ".jpeg"]:
-                    ext = ".jpg"
-                avatar_path = os.path.join(GV_AVATAR_DIR, "avatar_giao_vien" + ext)
-                with open(avatar_path, "wb") as f:
-                    f.write(avatar_file.getbuffer())
+                try:
+                    # Lưu bản chính vào hồ sơ dùng chung trên Supabase.
+                    avatar_data_uri = _avatar_upload_to_data_uri(avatar_file)
+                    if not avatar_data_uri:
+                        st.error("Không đọc được ảnh đại diện.")
+                        st.stop()
+
+                    # Vẫn ghi một bản local để tương thích khi chạy offline trên máy GV.
+                    ext = os.path.splitext(avatar_file.name)[1].lower()
+                    if ext not in [".png", ".jpg", ".jpeg"]:
+                        ext = ".jpg"
+                    avatar_path = os.path.join(GV_AVATAR_DIR, "avatar_giao_vien" + ext)
+                    try:
+                        with open(avatar_path, "wb") as f:
+                            f.write(avatar_file.getbuffer())
+                    except Exception:
+                        # Streamlit Cloud có thể dùng ổ đĩa tạm; lỗi local không được
+                        # làm mất bản ảnh đã chuẩn bị để lưu trên Supabase.
+                        pass
+                except ValueError as e:
+                    st.error(str(e))
+                    st.stop()
+
+            # Nếu hồ sơ cũ chưa có ảnh Supabase nhưng file local vẫn còn, tự di trú
+            # khi GV bấm Lưu hồ sơ mà không cần chọn lại ảnh.
+            if not avatar_data_uri and avatar_path:
+                avatar_data_uri = _avatar_data_uri(avatar_path)
+
             luu_ho_so_giao_vien({
                 "ten": ten.strip() or DEFAULT_GV_PROFILE["ten"],
                 "chuc_vu": chuc_vu.strip(),
                 "don_vi": don_vi.strip(),
                 "loi_chao": loi_chao.strip(),
-                "avatar_path": avatar_path
+                "avatar_path": avatar_path,
+                "avatar_data_uri": avatar_data_uri
             })
-            st.success("Đã lưu hồ sơ giáo viên.")
+            st.success("Đã lưu hồ sơ giáo viên và ảnh đại diện vào dữ liệu dùng chung.")
             st.rerun()
 
 # ==========================================================
@@ -6126,7 +6183,7 @@ def trang_chu():
     chuc_vu = str(profile.get("chuc_vu", "") or "").strip()
     don_vi = str(profile.get("don_vi", "") or "").strip()
     loi_chao = str(profile.get("loi_chao", "") or "").strip()
-    avatar_uri = _avatar_data_uri(profile.get("avatar_path"))
+    avatar_uri = _avatar_data_uri(profile.get("avatar_data_uri")) or _avatar_data_uri(profile.get("avatar_path"))
 
     st.markdown(
         """
