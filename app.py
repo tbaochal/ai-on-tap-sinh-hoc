@@ -64,6 +64,7 @@ os.makedirs(SEED_SOURCE_DIR, exist_ok=True)
 os.makedirs(GV_AVATAR_DIR, exist_ok=True)
 
 MODEL_AI = "gemini-3.6-flash"
+APP_BUILD = "V5 – đa file + liên kết nguồn tự động"
 
 # Chế độ triển khai:
 # - full: trang chủ cho chọn GV/HS (dùng khi chạy nội bộ)
@@ -20307,6 +20308,19 @@ def _sao_luu_ngan_hang_chinh_truoc_khi_don(bank, ly_do="don_hat_giong"):
 
 def ngan_hang_hat_giong():
     st.header("🌱 NGÂN HÀNG HẠT GIỐNG")
+    st.caption(f"🧩 Phiên bản đang chạy: **{APP_BUILD}**")
+
+    # Sau khi nhập xong app tự rerun để sidebar đọc lại số câu mới.
+    # Giữ thông báo kết quả qua một lần rerun để GV vẫn nhìn thấy báo cáo.
+    _flash = st.session_state.pop("_seed_import_flash_v5", None)
+    if isinstance(_flash, dict):
+        st.success(str(_flash.get("message", "Đã nhập và đồng bộ hạt giống.")))
+        cfa, cfb = st.columns(2)
+        cfa.metric("🌱 Hạt giống sau nhập", int(_flash.get("seed_count", 0) or 0))
+        cfb.metric("🏦 Ngân hàng chung sau đồng bộ", int(_flash.get("bank_count", 0) or 0))
+        _bc = _flash.get("bao_cao") or []
+        if _bc:
+            st.dataframe(pd.DataFrame(_bc), use_container_width=True, hide_index=True)
     st.caption(
         "Kho nguồn đã được GV chuẩn hóa trước khi tải lên. App KHÔNG gọi AI để kiểm tra lại đáp án khi nhập; "
         "chỉ đọc metadata, chống trùng cục bộ và đồng bộ câu đủ YCCĐ + đáp án vào ngân hàng chính."
@@ -20403,6 +20417,7 @@ def ngan_hang_hat_giong():
                             "Phát hiện": len(ds_tach),
                             "Nhập mới": 0,
                             "Đồng bộ NH": 0,
+                            "Liên kết nguồn": 0,
                             "MCQ": sum(1 for x in ds_tach if x.get("dang_cau") == "Trắc nghiệm 4 lựa chọn"),
                             "Đ/S": sum(1 for x in ds_tach if x.get("dang_cau") == "Đúng / Sai"),
                             "TL ngắn": sum(1 for x in ds_tach if x.get("dang_cau") == "Trả lời ngắn"),
@@ -20499,11 +20514,18 @@ def ngan_hang_hat_giong():
                         k: sum(1 for x in ds_tach if x.get("dang_cau") == k)
                         for k in ["Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"]
                     }
+                    # Đếm trực tiếp số câu NH chung đang mang dấu vết của file này.
+                    # Đây là cột kiểm tra liên kết nguồn, không phải chỉ số "thêm mới".
+                    lien_ket_file = sum(
+                        1 for _qmain in bank_main
+                        if ten_file in _main_cac_nguon_hat_giong(_qmain)
+                    )
                     bao_cao.append({
                         "File": ten_file,
                         "Phát hiện": len(ds_tach),
                         "Nhập mới": them_file,
                         "Đồng bộ NH": da_chuyen_file,
+                        "Liên kết nguồn": lien_ket_file,
                         "MCQ": loai_counts["Trắc nghiệm 4 lựa chọn"],
                         "Đ/S": loai_counts["Đúng / Sai"],
                         "TL ngắn": loai_counts["Trả lời ngắn"],
@@ -20522,6 +20544,7 @@ def ngan_hang_hat_giong():
                         "Phát hiện": 0,
                         "Nhập mới": 0,
                         "Đồng bộ NH": 0,
+                        "Liên kết nguồn": 0,
                         "MCQ": 0, "Đ/S": 0, "TL ngắn": 0,
                         "Trùng hạt giống": 0, "Đã có NH": 0,
                         "Thiếu YCCĐ": 0, "Thiếu đáp án": 0,
@@ -20530,8 +20553,32 @@ def ngan_hang_hat_giong():
                     st.error(f"File {ten_file} bị lỗi và đã được bỏ qua: {e}")
                     continue
 
+            # ------------------------------------------------------
+            # V5: KHÔI PHỤC LIÊN KẾT CŨ TỰ ĐỘNG
+            # ------------------------------------------------------
+            # Các bản app cũ có thể đã có câu trong Hạt giống nhưng NH chung chưa
+            # lưu nguon_seed_id/tên file. Dùng index O(1) để đối chiếu một lần:
+            # - nếu câu đã có: chỉ gắn lại liên kết nguồn, KHÔNG tạo bản sao;
+            # - nếu câu đủ metadata mà thực sự chưa có: bổ sung vào NH chung.
+            all_seed_ids = {
+                str(_s.get("id", "") or "").strip()
+                for _s in bank_seed
+                if str(_s.get("id", "") or "").strip()
+            }
+            linked_seed_ids = set(index_main.get("by_seed", {}).keys())
+            seed_ids_can_repair = all_seed_ids - linked_seed_ids
+            da_khoi_phuc_cu = 0
+            bo_qua_khoi_phuc_cu = 0
+            if seed_ids_can_repair:
+                status_box.info(
+                    f"3/5 Đang khôi phục liên kết cho {len(seed_ids_can_repair)} câu hạt giống cũ..."
+                )
+                da_khoi_phuc_cu, bo_qua_khoi_phuc_cu, index_main = _seed_dong_bo_ids_vao_bo_nho(
+                    bank_seed, bank_main, seed_ids_can_repair, index_main=index_main
+                )
+
             progress.progress(82)
-            status_box.info("3/4 Đang lưu một lần toàn bộ kết quả lên Supabase...")
+            status_box.info("4/5 Đang lưu một lần toàn bộ kết quả lên Supabase...")
 
             # Chỉ ghi cloud 2 lần cho CẢ batch, không ghi lại sau từng file.
             ok_seed_save = luu_ngan_hang_hat_giong(bank_seed)
@@ -20540,14 +20587,25 @@ def ngan_hang_hat_giong():
             ok_bank_cloud = ok_bank_save and not _co_pending_sync(BANK_PATH)
 
             progress.progress(100)
-            status_box.success("4/4 Hoàn tất batch nhiều file.")
+            status_box.success("5/5 Hoàn tất nhập, liên kết và đồng bộ.")
 
             if ok_seed_cloud and ok_bank_cloud:
-                st.success(
+                msg = (
                     f"Đã xử lý {file_ok}/{tong_file_nhap} file; nhập mới {them} câu hạt giống; "
-                    f"đồng bộ thêm {da_chuyen_tong} câu vào Ngân hàng chung; "
-                    f"{trung_seed} câu trùng hạt giống được cập nhật."
+                    f"đồng bộ mới {da_chuyen_tong} câu của lượt này; "
+                    f"khôi phục/bổ sung thêm {da_khoi_phuc_cu} câu từ hạt giống cũ; "
+                    f"{trung_seed} câu trùng hạt giống được cập nhật. "
+                    f"NH chung hiện có {len(bank_main)} câu."
                 )
+                # Rerun để số "Ngân hàng" ở sidebar cập nhật ngay, tránh cảm giác
+                # app đã báo đồng bộ nhưng bộ đếm bên trái vẫn là số cũ.
+                st.session_state["_seed_import_flash_v5"] = {
+                    "message": msg,
+                    "seed_count": len(bank_seed),
+                    "bank_count": len(bank_main),
+                    "bao_cao": bao_cao,
+                }
+                st.rerun()
             else:
                 st.warning(
                     "Đã lưu đầy đủ bản LOCAL sau từng file, nhưng Supabase chưa xác minh xong. "
@@ -20562,9 +20620,11 @@ def ngan_hang_hat_giong():
                 st.info(
                     f"Có {file_loi} file bị bỏ qua/lỗi; {file_ok} file còn lại vẫn đã được xử lý độc lập."
                 )
-            if bo_qua_sync_tong:
+            if bo_qua_sync_tong or bo_qua_khoi_phuc_cu:
                 st.caption(
-                    f"Có {bo_qua_sync_tong} câu không tạo bản mới trong NH chung vì thiếu YCCĐ/đáp án hoặc đã có sẵn."
+                    "Các câu không tạo bản mới chủ yếu là câu đã có trong NH chung; "
+                    "V5 vẫn gắn/khôi phục liên kết file nguồn cho chúng. "
+                    f"Số lượt không tạo bản mới: {bo_qua_sync_tong + bo_qua_khoi_phuc_cu}."
                 )
             if bao_cao:
                 st.dataframe(pd.DataFrame(bao_cao), use_container_width=True, hide_index=True)
