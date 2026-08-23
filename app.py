@@ -17495,6 +17495,78 @@ def _seed_lay_meta(chunk, nhan):
     return ""
 
 
+
+def _seed_lay_huong_dan_giai(chunk):
+    """Đọc lời giải/hướng dẫn giải từ file hạt giống.
+
+    Hỗ trợ cả dạng Word thông thường ``Hướng dẫn giải: ...`` / ``Lời giải: ...``
+    và mẫu ``[[HƯỚNG DẪN GIẢI]] ...``. Chỉ lấy nội dung lời giải của chính
+    câu hiện tại; dừng trước tiêu đề phần/chủ đề nếu có.
+    """
+    text = unicodedata.normalize("NFKC", str(chunk or ""))
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = text.splitlines()
+
+    start_idx = None
+    first_value = ""
+    label_re = re.compile(
+        r"^\s*(?:\[\[\s*)?(?:HƯỚNG\s*DẪN\s*GIẢI|HUONG\s*DAN\s*GIAI|"
+        r"HƯỚNG\s*GIẢI|HUONG\s*GIAI|LỜI\s*GIẢI|LOI\s*GIAI)"
+        r"(?:\s*\]\])?\s*[:：]?\s*(.*)$",
+        flags=re.I,
+    )
+
+    for i, line in enumerate(lines):
+        m = label_re.match(str(line or "").strip())
+        if m:
+            start_idx = i
+            first_value = str(m.group(1) or "").strip()
+            break
+
+    if start_idx is None:
+        return ""
+
+    parts = []
+    if first_value:
+        parts.append(first_value)
+
+    stop_re = re.compile(
+        r"^\s*(?:DẠNG\s*\d+|DANG\s*\d+|CHỦ\s*ĐỀ\b|CHU\s*DE\b|"
+        r"PHẦN\s+[IVXLC]+\b|PHAN\s+[IVXLC]+\b|NGÂN\s*HÀNG\s*CÂU\s*HỎI\b)",
+        flags=re.I,
+    )
+    metadata_re = re.compile(
+        r"^\s*(?:ĐÁP\s*ÁN|DAP\s*AN|YCCĐ|YÊU\s*CẦU\s*CẦN\s*ĐẠT|"
+        r"KIẾN\s*THỨC|MỨC\s*ĐỘ|THÀNH\s*PHẦN\s*NĂNG\s*LỰC|CHỈ\s*BÁO)\b",
+        flags=re.I,
+    )
+
+    for line in lines[start_idx + 1:]:
+        stp = str(line or "").strip()
+        if not stp:
+            if parts and parts[-1] != "":
+                parts.append("")
+            continue
+        if stop_re.match(stp):
+            break
+        # Nếu file đặt lời giải trước metadata, không nuốt metadata vào lời giải.
+        if metadata_re.match(stp):
+            break
+        if re.match(r"^\[\[\s*(?:ĐÁP\s*ÁN|DAP\s*AN|YCCĐ|META\s+[A-Da-d])", stp, flags=re.I):
+            break
+        parts.append(stp)
+
+    # Chuẩn hoá khoảng trắng nhưng giữ ngắt dòng khi lời giải có nhiều bước.
+    out = []
+    for x in parts:
+        if x == "":
+            if out and out[-1] != "":
+                out.append("")
+            continue
+        out.append(" ".join(x.split()))
+    return "\n".join(out).strip()
+
+
 def _seed_tach_nhan_dinh_ds(chunk):
     """Đọc 4 nhận định a-d và metadata từng ý.
 
@@ -18195,7 +18267,17 @@ def _seed_chuyen_thanh_cau_ngan_hang(seed):
         "trang_thai": "Hạt giống an toàn",
         "duoc_dung_luyen_hs": True,
         "ngay_tao": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "giai_thich": "",
+        "giai_thich": str(
+            seed.get("giai_thich_nguon", seed.get("giai_thich", "")) or ""
+        ).strip(),
+        "nguon_giai_thich": (
+            str(seed.get("nguon_giai_thich", "") or "").strip()
+            or (
+                "Lời giải từ file nguồn"
+                if str(seed.get("giai_thich_nguon", seed.get("giai_thich", "")) or "").strip()
+                else ""
+            )
+        ),
         "lua_chon": [],
         "dap_an": "",
         "tinh_huong": "",
@@ -18384,7 +18466,8 @@ def _seed_bo_sung_main_tu_nguon(old, new):
         # Nguồn đã được kiểm tra trước khi nhập -> dùng lại cấu trúc chuẩn để sửa bản cũ.
         for f in [
             "dang_cau", "cau_hoi", "tinh_huong", "lua_chon",
-            "nhan_dinh_meta", "tai_nguyen_truc_quan", "du_lieu_truc_quan"
+            "nhan_dinh_meta", "giai_thich", "nguon_giai_thich",
+            "tai_nguyen_truc_quan", "du_lieu_truc_quan"
         ]:
             nv=new.get(f)
             if nv not in (None, "", [], {}) and old.get(f) != nv:
@@ -18398,6 +18481,10 @@ def _seed_bo_sung_main_tu_nguon(old, new):
             old[f]=new.get(f); changed=True
     if not str(old.get("dap_an", "") or "").strip() and str(new.get("dap_an", "") or "").strip():
         old["dap_an"]=new.get("dap_an"); changed=True
+    if not str(old.get("giai_thich", "") or "").strip() and str(new.get("giai_thich", "") or "").strip():
+        old["giai_thich"] = new.get("giai_thich", "")
+        old["nguon_giai_thich"] = new.get("nguon_giai_thich", "") or "Lời giải từ file nguồn"
+        changed = True
     if new.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" and not list(old.get("lua_chon", []) or []) and list(new.get("lua_chon", []) or []):
         old["lua_chon"]=new.get("lua_chon"); changed=True
     if new.get("dang_cau") == "Đúng / Sai" and not list(old.get("nhan_dinh_meta", []) or []) and list(new.get("nhan_dinh_meta", []) or []):
@@ -18546,6 +18633,7 @@ def tach_cau_hoi_hat_giong(
                     nd["yccd"] = yccd_seed
 
         dap_an_nguon = _seed_doc_dap_an_nguon(chunk, dang, nhan_dinh_meta)
+        giai_thich_nguon = _seed_lay_huong_dan_giai(chunk)
         # Nếu Đ/S có đáp án chung nhưng META chưa ghi đáp án, phân bổ lại cho từng ý.
         if dang == "Đúng / Sai" and isinstance(dap_an_nguon, list) and len(dap_an_nguon) == 4 and nhan_dinh_meta:
             for idx_nd, nd in enumerate(nhan_dinh_meta[:4]):
@@ -18584,6 +18672,10 @@ def tach_cau_hoi_hat_giong(
             "nguon_file_path": source_path,
             "thu_muc_media": media_dir,
             "dap_an_nguon": dap_an_nguon,
+            "giai_thich_nguon": giai_thich_nguon,
+            "nguon_giai_thich": (
+                "Lời giải từ file nguồn" if str(giai_thich_nguon or "").strip() else ""
+            ),
             "kiem_tra_dap_an": "Nguồn đã chuẩn hóa trước khi nhập",
             "trang_thai_kiem_tra_dap_an": "Không kiểm tra AI",
             "do_tin_cay_dap_an": None,
@@ -19575,7 +19667,8 @@ def ngan_hang_hat_giong():
                             "dang_cau_goi_y", "dang_cau",
                             "yccd", "muc_do", "thanh_phan_nang_luc",
                             "chi_bao", "hanh_vi_nang_luc", "kien_thuc_chu_de",
-                            "dap_an_nguon", "nhan_dinh_meta",
+                            "dap_an_nguon", "giai_thich_nguon", "nguon_giai_thich",
+                            "nhan_dinh_meta",
                             "kiem_tra_dap_an", "trang_thai_kiem_tra_dap_an",
                             "gv_da_duyet_dap_an", "duoc_dung_lam_hat_giong",
                             "nguon_da_kiem_tra_truoc"
@@ -19644,7 +19737,8 @@ def ngan_hang_hat_giong():
             luu_ngan_hang_hat_giong(bank_seed)
             da_chuyen, bo_qua_sync = dong_bo_hat_giong_an_toan_sang_ngan_hang(bank_seed)
             st.success(
-                f"Đã nhập {them} câu vào hạt giống; {trung_seed} câu trùng chính xác đã được gộp/cập nhật; "
+                f"Đã nhập {them} câu vào hạt giống; {trung_seed} câu trùng chính xác đã được gộp/cập nhật "
+                f"(đáp án, hướng dẫn giải, ảnh/bảng và metadata nếu file mới có); "
                 f"{trung_main} câu đã có trong ngân hàng chính vẫn được giữ nguồn. "
                 f"📚 Đã đồng bộ thêm {da_chuyen} câu mới đủ YCCĐ + đáp án vào ngân hàng chính. Không gọi Gemini."
             )
