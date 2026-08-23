@@ -30,7 +30,7 @@ from muc_do_nhan_thuc import DONG_TU_MUC_DO, xac_dinh_muc_do
 # CẤU HÌNH
 # ==========================================================
 st.set_page_config(
-    page_title="AI Ôn tập Sinh học",
+    page_title="Trạm Sinh học",
     page_icon="🧬",
     layout="wide"
 )
@@ -6118,6 +6118,75 @@ def luu_cau_vao_ngan_hang(question):
 
 
 # ==========================================================
+# NHẬN DIỆN THƯƠNG HIỆU - TRẠM SINH HỌC
+# ==========================================================
+def hien_thi_dau_trang_tram_sinh_hoc(khu_vuc="hocsinh"):
+    """Dải nhận diện dùng chung cho giao diện học sinh và giáo viên."""
+    la_gv = str(khu_vuc).strip().lower() == "giaovien"
+    phu_de = (
+        "KHU VỰC GIÁO VIÊN • KIẾN TẠO HỌC LIỆU • THEO DÕI TIẾN BỘ"
+        if la_gv
+        else "HỌC TẬP • ÔN LUYỆN • CHINH PHỤC"
+    )
+    slogan = (
+        "Kiến tạo học liệu • Theo dõi tiến bộ • Đồng hành cùng học sinh"
+        if la_gv
+        else "Học đúng trọng tâm • Luyện đúng năng lực • Tiến bộ mỗi ngày"
+    )
+    st.markdown(
+        f"""
+        <style>
+        .tram-bio-head {{
+            position:relative; overflow:hidden; border-radius:26px;
+            padding:1.35rem 1.55rem 1.2rem 1.55rem; margin:.15rem 0 1.15rem 0;
+            background:linear-gradient(118deg,#0b3b78 0%,#087f8c 52%,#16865d 100%);
+            box-shadow:0 16px 42px rgba(13,70,100,.18); color:#fff;
+            border:1px solid rgba(255,255,255,.22);
+        }}
+        .tram-bio-head:before {{
+            content:""; position:absolute; width:260px; height:260px; border-radius:50%;
+            right:-90px; top:-120px; background:rgba(255,255,255,.08);
+        }}
+        .tram-bio-dna {{
+            position:absolute; right:1.2rem; bottom:-1.2rem; font-size:7.2rem;
+            opacity:.12; transform:rotate(-10deg); user-select:none;
+        }}
+        .tram-bio-dept {{ font-size:.82rem; font-weight:750; letter-spacing:.045em; opacity:.92; }}
+        .tram-bio-school {{ font-size:1.02rem; font-weight:900; margin-top:.12rem; letter-spacing:.025em; }}
+        .tram-bio-title {{ font-size:2.18rem; font-weight:950; line-height:1.02; margin:.68rem 0 .28rem 0; }}
+        .tram-bio-sub {{ font-size:.86rem; font-weight:850; letter-spacing:.035em; opacity:.94; }}
+        .tram-bio-slogan {{ margin-top:.68rem; font-size:.96rem; font-weight:650; opacity:.97; }}
+        .tram-bio-icons {{ margin-top:.72rem; display:flex; gap:.5rem; flex-wrap:wrap; }}
+        .tram-bio-chip {{
+            padding:.30rem .62rem; border-radius:999px; background:rgba(255,255,255,.11);
+            border:1px solid rgba(255,255,255,.18); font-size:.78rem; font-weight:700;
+        }}
+        @media (max-width:700px) {{
+            .tram-bio-title {{ font-size:1.75rem; }}
+            .tram-bio-dept {{ font-size:.72rem; }}
+            .tram-bio-school {{ font-size:.90rem; }}
+        }}
+        </style>
+        <div class="tram-bio-head">
+            <div class="tram-bio-dna">🧬</div>
+            <div class="tram-bio-dept">SỞ GIÁO DỤC VÀ ĐÀO TẠO GIA LAI</div>
+            <div class="tram-bio-school">TRƯỜNG THPT SỐ 1 PHÙ CÁT</div>
+            <div class="tram-bio-title">TRẠM SINH HỌC</div>
+            <div class="tram-bio-sub">{phu_de}</div>
+            <div class="tram-bio-slogan">“{slogan}”</div>
+            <div class="tram-bio-icons">
+                <span class="tram-bio-chip">🧬 Di truyền</span>
+                <span class="tram-bio-chip">🔬 Khám phá</span>
+                <span class="tram-bio-chip">🧫 Tế bào</span>
+                <span class="tram-bio-chip">🌿 Sự sống</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+# ==========================================================
 # TRANG CHỦ
 # ==========================================================
 def trang_chu():
@@ -6209,9 +6278,9 @@ def trang_chu():
         f"""
         <div class="home-wrap">
           <div class="home-hero">
-            <div class="home-kicker">🔬 SINH HỌC • DỮ LIỆU • AI</div>
-            <div class="home-title">AI ÔN TẬP SINH HỌC</div>
-            <p class="home-sub">Học đúng trọng tâm, luyện đúng Yêu cầu cần đạt và theo dõi tiến bộ bằng dữ liệu. Giáo viên xây dựng câu hỏi chất lượng; học sinh được luyện tập theo chính điểm mạnh và phần kiến thức còn yếu của mình.</p>
+            <div class="home-kicker">🔬 SỞ GD&ĐT GIA LAI • THPT SỐ 1 PHÙ CÁT</div>
+            <div class="home-title">TRẠM SINH HỌC</div>
+            <p class="home-sub">Học tập, ôn luyện và phát triển năng lực Sinh học trên một hệ thống thống nhất. Giáo viên kiến tạo học liệu; học sinh luyện tập đúng trọng tâm và theo dõi tiến bộ của chính mình.</p>
             <div class="home-badges">
               <span class="home-badge">🧬 YCCĐ làm trung tâm</span>
               <span class="home-badge">🎯 Cá nhân hóa luyện tập</span>
@@ -23413,6 +23482,8 @@ def giao_vien():
 
             st.rerun()
 
+    hien_thi_dau_trang_tram_sinh_hoc("giaovien")
+
     profile = doc_ho_so_giao_vien()
     st.markdown(
         f'<div class="section-title-card"><b>👋 Xin chào, {_html_escape(profile.get("ten"))}</b> &nbsp;•&nbsp; {_html_escape(menu)}</div>',
@@ -24959,16 +25030,34 @@ def hoc_sinh():
         [data-testid="stMetricValue"] {
             font-size: 2rem !important;
         }
+
+        /* Khối nhận diện/đăng nhập học sinh */
+        .hs-login-banner {
+            margin:1.0rem 0 .55rem 0; padding:1rem 1.15rem; border-radius:18px;
+            background:linear-gradient(135deg,#eef8ff,#effdf5);
+            border:2px solid #82c9b3; box-shadow:0 10px 28px rgba(15,90,100,.10);
+        }
+        .hs-login-title { font-size:1.20rem; font-weight:900; color:#0b5f69; }
+        .hs-login-note { margin-top:.2rem; color:#5a6d7e; font-size:.92rem; }
+        [data-testid="stTextInput"] input {
+            border:2px solid #54a895 !important; border-radius:12px !important;
+            background:#ffffff !important; min-height:3rem !important;
+        }
+        [data-testid="stTextInput"] input:focus {
+            border-color:#087f8c !important; box-shadow:0 0 0 .18rem rgba(8,127,140,.12) !important;
+        }
         </style>
         """,
         unsafe_allow_html=True
     )
 
 
-    st.title("🎓 HỌC TẬP & LUYỆN ĐỀ")
-    st.caption(
-        "Luyện theo bài • theo chương • đề giáo viên • tốt nghiệp THPT • "
-        "cá nhân hóa theo kết quả của chính em"
+    hien_thi_dau_trang_tram_sinh_hoc("hocsinh")
+    st.markdown(
+        '<div style="text-align:center;color:#52677f;font-weight:650;margin:-.35rem 0 1rem 0;">'
+        'Luyện theo bài • theo chương • đề giáo viên • tốt nghiệp THPT • cá nhân hóa theo kết quả của chính em'
+        '</div>',
+        unsafe_allow_html=True
     )
 
     # ======================================================
@@ -25076,8 +25165,14 @@ def hoc_sinh():
     # ======================================================
     # NHẬN DIỆN HỌC SINH
     # ======================================================
-    st.subheader(
-        "🔐 Nhận diện học sinh"
+    st.markdown(
+        """
+        <div class="hs-login-banner">
+            <div class="hs-login-title">🔐 ĐĂNG NHẬP HỌC SINH</div>
+            <div class="hs-login-note">Nhập mã học sinh do giáo viên cấp để vào đúng hồ sơ học tập, bài luyện và tiến độ của em.</div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
     hs_id = st.text_input(
@@ -27660,7 +27755,8 @@ def cho_phep_vao_khu_vuc_giao_vien():
     if st.session_state.get("gv_da_xac_thuc_trien_khai"):
         return True
 
-    st.title("🔐 KHU VỰC GIÁO VIÊN")
+    hien_thi_dau_trang_tram_sinh_hoc("giaovien")
+    st.subheader("🔐 ĐĂNG NHẬP GIÁO VIÊN")
     st.caption("Khu vực này được tách khỏi giao diện học sinh và yêu cầu mã bảo vệ phía máy chủ.")
     ma_nhap = st.text_input(
         "Mã truy cập giáo viên",
