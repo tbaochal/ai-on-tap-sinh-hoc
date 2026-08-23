@@ -6232,57 +6232,88 @@ def luu_cau_vao_ngan_hang(question):
 # NHẬN DIỆN THƯƠNG HIỆU - TRẠM SINH HỌC
 # ==========================================================
 def hien_thi_dau_trang_tram_sinh_hoc(khu_vuc="hocsinh"):
-    """Nhận diện thống nhất cho GV/HS, không để Markdown hiểu nhầm HTML thành code block."""
+    """Dải nhận diện dùng chung cho giao diện học sinh và giáo viên."""
     la_gv = str(khu_vuc).strip().lower() == "giaovien"
-    role = "KHU VỰC GIÁO VIÊN" if la_gv else "HỌC TẬP • ÔN LUYỆN • CHINH PHỤC"
+    phu_de = "KHU VỰC GIÁO VIÊN" if la_gv else "HỌC TẬP • ÔN LUYỆN • CHINH PHỤC"
     slogan = (
         "Kiến tạo học liệu • Theo dõi tiến bộ • Đồng hành cùng học sinh"
         if la_gv
         else "Học đúng trọng tâm • Luyện đúng năng lực • Tiến bộ mỗi ngày"
     )
-    chips_html = "" if la_gv else (
-        '<div class="tram-bio-icons">'
-        '<span class="tram-bio-chip">🧬 Di truyền</span>'
-        '<span class="tram-bio-chip">🔬 Khám phá</span>'
-        '<span class="tram-bio-chip">🧫 Tế bào</span>'
-        '<span class="tram-bio-chip">🌿 Sự sống</span>'
-        '</div>'
+
+    st.markdown(
+        f"""
+        <style>
+        .tram-bio-shell {{ max-width:1120px; margin:0 auto 1.05rem auto; }}
+        .tram-bio-head {{
+            position:relative; overflow:hidden; border-radius:28px;
+            padding:1.45rem 1.4rem 1.35rem 1.4rem;
+            background:linear-gradient(118deg,#0b3b78 0%,#087f8c 54%,#16865d 100%);
+            box-shadow:0 18px 42px rgba(13,70,100,.15); color:#fff;
+            border:1px solid rgba(255,255,255,.16);
+        }}
+        .tram-bio-head::before {{
+            content:""; position:absolute; width:250px; height:250px; border-radius:50%;
+            right:-105px; top:-135px; background:rgba(255,255,255,.07);
+        }}
+        .tram-bio-head::after {{
+            content:"🧬"; position:absolute; right:5%; top:50%;
+            transform:translateY(-50%) rotate(-10deg); font-size:5.5rem;
+            opacity:.10; user-select:none;
+        }}
+        .tram-bio-center {{
+            position:relative; z-index:2; max-width:820px; margin:0 auto;
+            display:flex; flex-direction:column; align-items:center;
+            justify-content:center; text-align:center;
+        }}
+        .tram-bio-dept {{ font-size:.79rem; font-weight:780; letter-spacing:.055em; opacity:.93; text-transform:uppercase; text-align:center; }}
+        .tram-bio-school {{ font-size:1.02rem; font-weight:900; margin-top:.14rem; letter-spacing:.025em; text-align:center; }}
+        .tram-bio-title {{ font-size:2.55rem; font-weight:950; line-height:1.03; margin:.70rem 0 .28rem 0; text-align:center; }}
+        .tram-bio-sub {{
+            display:inline-flex; align-items:center; justify-content:center;
+            padding:.30rem .76rem; border-radius:999px;
+            background:rgba(255,255,255,.11); border:1px solid rgba(255,255,255,.18);
+            font-size:.82rem; font-weight:850; letter-spacing:.035em; opacity:.97;
+            text-align:center;
+        }}
+        .tram-bio-slogan {{ margin-top:.72rem; font-size:1rem; font-weight:720; opacity:.98; text-align:center; }}
+        .tram-bio-icons {{
+            margin-top:.78rem; display:flex; justify-content:center; align-items:center;
+            gap:.48rem; flex-wrap:wrap; width:100%;
+        }}
+        .tram-bio-chip {{
+            padding:.33rem .68rem; border-radius:999px; background:rgba(255,255,255,.10);
+            border:1px solid rgba(255,255,255,.17); font-size:.78rem; font-weight:750;
+        }}
+        @media (max-width:700px) {{
+            .tram-bio-head {{ padding:1.25rem .95rem 1.15rem .95rem; border-radius:22px; }}
+            .tram-bio-title {{ font-size:2rem; }}
+            .tram-bio-dept {{ font-size:.68rem; }}
+            .tram-bio-school {{ font-size:.88rem; }}
+            .tram-bio-head::after {{ font-size:4rem; right:2%; opacity:.06; }}
+        }}
+        </style>
+        <div class="tram-bio-shell">
+            <div class="tram-bio-head">
+                <div class="tram-bio-center">
+                    <div class="tram-bio-dept">SỞ GIÁO DỤC VÀ ĐÀO TẠO GIA LAI</div>
+                    <div class="tram-bio-school">TRƯỜNG THPT SỐ 1 PHÙ CÁT</div>
+                    <div class="tram-bio-title">TRẠM SINH HỌC</div>
+                    <div class="tram-bio-sub">{phu_de}</div>
+                    <div class="tram-bio-slogan">{slogan}</div>
+                    <div class="tram-bio-icons">
+                        <span class="tram-bio-chip">🧬 Di truyền</span>
+                        <span class="tram-bio-chip">🔬 Khám phá</span>
+                        <span class="tram-bio-chip">🧫 Tế bào</span>
+                        <span class="tram-bio-chip">🌿 Sự sống</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
-    css = """
-    <style>
-    .tram-bio-shell{max-width:1160px;margin:0 auto 1rem auto}
-    .tram-bio-head{position:relative;overflow:hidden;border-radius:26px;padding:1.45rem 1.55rem;color:#fff;background:linear-gradient(120deg,#123f78 0%,#087c88 54%,#17835c 100%);border:1px solid rgba(255,255,255,.16);box-shadow:0 16px 38px rgba(20,67,93,.15);display:grid;grid-template-columns:minmax(0,1.8fr) minmax(150px,.45fr);gap:1rem;align-items:center}
-    .tram-bio-head:before{content:"";position:absolute;width:300px;height:300px;border-radius:50%;right:-145px;top:-175px;background:rgba(255,255,255,.07)}
-    .tram-bio-left,.tram-bio-right{position:relative;z-index:1}
-    .tram-bio-dept{font-size:.76rem;font-weight:800;letter-spacing:.055em;opacity:.90}
-    .tram-bio-school{font-size:1.01rem;font-weight:900;letter-spacing:.028em;margin-top:.15rem}
-    .tram-bio-title{font-size:2.48rem;font-weight:950;line-height:1.02;margin:.68rem 0 .30rem 0}
-    .tram-bio-role{display:inline-block;padding:.27rem .66rem;border-radius:999px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.17);font-size:.78rem;font-weight:850;letter-spacing:.035em}
-    .tram-bio-slogan{margin-top:.78rem;font-size:1rem;font-weight:700;opacity:.98}
-    .tram-bio-icons{margin-top:.78rem;display:flex;gap:.46rem;flex-wrap:wrap}
-    .tram-bio-chip{padding:.31rem .67rem;border-radius:999px;background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.17);font-size:.77rem;font-weight:730}
-    .tram-bio-right{display:flex;align-items:center;justify-content:center;min-height:130px}
-    .tram-bio-dna{font-size:5rem;line-height:1;opacity:.16;user-select:none;transform:rotate(-8deg)}
-    @media(max-width:820px){.tram-bio-head{grid-template-columns:1fr;padding:1.18rem 1.12rem}.tram-bio-right{display:none}.tram-bio-title{font-size:2rem}}
-    </style>
-    """
-
-    # Thân HTML để trên một dòng liên tục để Streamlit/Markdown không biến thẻ div thành khối code.
-    body = (
-        '<div class="tram-bio-shell"><div class="tram-bio-head">'
-        '<div class="tram-bio-left">'
-        '<div class="tram-bio-dept">SỞ GIÁO DỤC VÀ ĐÀO TẠO GIA LAI</div>'
-        '<div class="tram-bio-school">TRƯỜNG THPT SỐ 1 PHÙ CÁT</div>'
-        '<div class="tram-bio-title">TRẠM SINH HỌC</div>'
-        f'<div class="tram-bio-role">{role}</div>'
-        f'<div class="tram-bio-slogan">{slogan}</div>'
-        f'{chips_html}'
-        '</div>'
-        '<div class="tram-bio-right"><div class="tram-bio-dna">🧬</div></div>'
-        '</div></div>'
-    )
-    st.markdown(css + body, unsafe_allow_html=True)
 
 # ==========================================================
 # TRANG CHỦ
