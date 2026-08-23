@@ -27,6 +27,29 @@ from muc_do_nhan_thuc import DONG_TU_MUC_DO, xac_dinh_muc_do
 
 
 # ==========================================================
+# STAGE 7 — FAST INTERACTION TOÀN CỤC
+# Streamlit mặc định rerun toàn script khi widget thay đổi.
+# Nếu phiên bản Streamlit hỗ trợ st.fragment, các vùng tương tác nặng
+# chỉ rerun chính vùng đó; nếu chưa hỗ trợ thì tự fallback an toàn.
+# ==========================================================
+def _safe_fragment(func):
+    frag = getattr(st, "fragment", None)
+    if callable(frag):
+        try:
+            return frag(func)
+        except Exception:
+            return func
+    return func
+
+
+def _perf_debug_enabled():
+    try:
+        return bool(st.secrets.get("PERF_DEBUG", False))
+    except Exception:
+        return False
+
+
+# ==========================================================
 # CẤU HÌNH
 # Bản TRẠM SINH HỌC: giữ nguyên đồng bộ ngân hàng + ảnh câu hỏi + cập nhật lời giải.
 # ==========================================================
@@ -78,521 +101,112 @@ if APP_MODE not in {"full", "student", "teacher"}:
 
 
 # ==========================================================
-# DỮ LIỆU DÙNG CHUNG: SUPABASE LÀ NGUỒN CHÍNH, JSON LÀ DỰ PHÒNG
+# DỮ LIỆU DÙNG CHUNG — ĐÃ TÁCH SANG data_store.py
+# Giai đoạn 1 an toàn: chỉ tách module, KHÔNG migration, KHÔNG đổi schema.
 # ==========================================================
-# Secret key chỉ được đọc ở phía server từ st.secrets.
-# Không đưa key vào mã nguồn và không hiển thị ra giao diện.
-_SUPABASE_CLIENT = None
-_SUPABASE_TRIED = False
+from data_store import (
+    configure_paths as _configure_data_paths,
+    _supabase_client,
+    _doc_json_local,
+    _luu_json_local,
+    _document_key,
+    _doc_cloud_document,
+    _doc_document_shared,
+    _luu_document_shared,
+    _doc_students_shared,
+    _luu_students_shared,
+    _xoa_student_shared,
+    _doc_attempts_shared,
+    _attempt_uuid,
+    _luu_attempts_shared,
+    _co_pending_sync,
+    _SHARED_WRITE_ERRORS,
+    storage_health as _storage_health,
+    document_count_shared as _document_count_shared,
+)
+
+_configure_data_paths(
+    student_path=STUDENT_PATH,
+    hs_history_path=HS_HISTORY_PATH,
+)
 
 
-def _supabase_client():
-    global _SUPABASE_CLIENT, _SUPABASE_TRIED
+# ==========================================================
+# STAGE 8 — CACHE DỮ LIỆU DÙNG CHUNG
+# Mục tiêu: chuyển mục / đổi widget không đọc lại cùng một document Supabase.
+# Cache chỉ giữ ngắn hạn; mọi hàm ghi bên dưới đều chủ động xóa cache.
+# ==========================================================
+@st.cache_data(ttl=120, show_spinner=False)
+def _doc_shared_list_cached(path):
+    data = _doc_document_shared(path, [])
+    return data if isinstance(data, list) else []
 
-    if _SUPABASE_TRIED:
-        return _SUPABASE_CLIENT
 
-    _SUPABASE_TRIED = True
+@st.cache_data(ttl=8, show_spinner=False)
+def _doc_shared_list_live_cached(path):
+    data = _doc_document_shared(path, [])
+    return data if isinstance(data, list) else []
 
-    if create_client is None:
-        return None
 
+@st.cache_data(ttl=45, show_spinner=False)
+def _doc_shared_list_mid_cached(path):
+    data = _doc_document_shared(path, [])
+    return data if isinstance(data, list) else []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _doc_shared_dict_cached(path):
+    data = _doc_document_shared(path, {})
+    return data if isinstance(data, dict) else {}
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _document_count_cached(path):
     try:
-        url = str(st.secrets.get("SUPABASE_URL", "") or "").strip()
-        key = str(st.secrets.get("SUPABASE_SECRET_KEY", "") or "").strip()
-        if not url or not key:
-            return None
-        _SUPABASE_CLIENT = create_client(url, key)
+        return int(_document_count_shared(path, 0) or 0)
     except Exception:
-        _SUPABASE_CLIENT = None
-
-    return _SUPABASE_CLIENT
+        return 0
 
 
-def _doc_json_local(path, default=None):
+def _clear_shared_read_caches():
+    """Xóa cache đọc sau thao tác ghi để không giữ dữ liệu cũ."""
     try:
-        if not os.path.exists(path) or os.path.getsize(path) == 0:
-            return default
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+        _doc_shared_list_cached.clear()
     except Exception:
-        return default
-
-
-def _luu_json_local(path, data):
+        pass
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        return True
+        _doc_shared_list_live_cached.clear()
     except Exception:
-        return False
-
-
-def _document_key(path):
-    return os.path.basename(str(path or "")).strip()
-
-
-# Với các tài liệu JSON lớn (đặc biệt ngân hàng câu hỏi / hạt giống),
-# không ghi toàn bộ danh sách vào một request Supabase. Ghi theo nhiều chunk nhỏ
-# ngay trong bảng app_documents để tránh request quá lớn / timeout và tránh tình trạng
-# UI báo "đã lưu" nhưng lần đọc sau lại lấy bản cloud cũ.
-_CLOUD_CHUNK_MARKER = "__tram_sinh_hoc_chunked__"
-_CLOUD_CHUNK_TARGET_BYTES = 1_500_000
-_SHARED_WRITE_ERRORS = {}
-
-
-def _pending_sync_path(path):
-    return str(path) + ".pending_cloud_sync"
-
-
-def _mark_pending_sync(path, error_text=""):
+        pass
     try:
-        with open(_pending_sync_path(path), "w", encoding="utf-8") as f:
-            f.write(str(error_text or "Cloud write failed"))
+        _doc_shared_list_mid_cached.clear()
+    except Exception:
+        pass
+    try:
+        _doc_shared_dict_cached.clear()
+    except Exception:
+        pass
+    try:
+        _document_count_cached.clear()
     except Exception:
         pass
 
 
-def _clear_pending_sync(path):
-    try:
-        pp = _pending_sync_path(path)
-        if os.path.exists(pp):
-            os.remove(pp)
-    except Exception:
-        pass
-
-
-def _co_pending_sync(path):
-    try:
-        return os.path.exists(_pending_sync_path(path))
-    except Exception:
-        return False
-
-
-def _chia_list_theo_dung_luong(data, target_bytes=_CLOUD_CHUNK_TARGET_BYTES):
-    chunks = []
-    cur = []
-    cur_size = 2
-    for item in list(data or []):
-        try:
-            item_size = len(json.dumps(item, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")) + 1
-        except Exception:
-            item_size = 4096
-        if cur and cur_size + item_size > target_bytes:
-            chunks.append(cur)
-            cur = []
-            cur_size = 2
-        cur.append(item)
-        cur_size += item_size
-    if cur or not chunks:
-        chunks.append(cur)
-    return chunks
-
-
-def _doc_cloud_document(client_sb, key):
-    """Đọc đúng bản cloud; hỗ trợ cả kiểu cũ một-row và kiểu chunk mới."""
-    res = (
-        client_sb.table("app_documents")
-        .select("document_key,data,updated_at")
-        .eq("document_key", key)
-        .limit(1)
-        .execute()
-    )
-    rows = getattr(res, "data", None) or []
-    if not rows:
-        return None
-    root = rows[0]
-    data = root.get("data")
-    if not (isinstance(data, dict) and data.get(_CLOUD_CHUNK_MARKER)):
-        return data
-
-    n = int(data.get("chunk_count", 0) or 0)
-    expected_count = int(data.get("item_count", 0) or 0)
-    expected_sha = str(data.get("sha256", "") or "")
-    if n <= 0:
-        return []
-
-    keys = [f"{key}::chunk::{i:05d}" for i in range(n)]
-    found = {}
-    # Ưu tiên 1 query cho nhiều key. Nếu phiên bản supabase-py không hỗ trợ in_,
-    # fallback đọc từng chunk.
-    try:
-        for start in range(0, len(keys), 60):
-            batch = keys[start:start + 60]
-            rr = (
-                client_sb.table("app_documents")
-                .select("document_key,data")
-                .in_("document_key", batch)
-                .execute()
-            )
-            for row in (getattr(rr, "data", None) or []):
-                found[str(row.get("document_key", ""))] = row.get("data")
-    except Exception:
-        found = {}
-        for ck in keys:
-            rr = (
-                client_sb.table("app_documents")
-                .select("document_key,data")
-                .eq("document_key", ck)
-                .limit(1)
-                .execute()
-            )
-            rr_rows = getattr(rr, "data", None) or []
-            if rr_rows:
-                found[ck] = rr_rows[0].get("data")
-
-    out = []
-    for ck in keys:
-        payload = found.get(ck)
-        if isinstance(payload, dict) and isinstance(payload.get("items"), list):
-            out.extend(payload.get("items") or [])
-        elif isinstance(payload, list):
-            out.extend(payload)
-        else:
-            raise RuntimeError(f"Thiếu chunk dữ liệu: {ck}")
-
-    if expected_count and len(out) != expected_count:
-        raise RuntimeError(
-            f"Dữ liệu cloud chưa đầy đủ: cần {expected_count} mục, đọc được {len(out)} mục."
-        )
-    if expected_sha:
-        raw = json.dumps(out, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=str)
-        got = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-        if got != expected_sha:
-            raise RuntimeError("Checksum dữ liệu cloud không khớp.")
-    return out
-
-
-def _doc_document_shared(path, default=None):
-    """Đọc Supabase; nếu lần ghi cloud gần nhất thất bại thì ưu tiên bản local vừa ghi."""
-    local_data = _doc_json_local(path, default)
-
-    # Nếu chính app đã đánh dấu một lần ghi cloud chưa xong, không lấy bản cloud cũ
-    # đè ngược lên dữ liệu local mới hơn.
-    if _co_pending_sync(path) and local_data is not None:
-        return local_data
-
-    client_sb = _supabase_client()
-    key = _document_key(path)
-    if client_sb is not None and key:
-        try:
-            data = _doc_cloud_document(client_sb, key)
-            if data is not None:
-                return data
-        except Exception as e:
-            _SHARED_WRITE_ERRORS[key] = f"Lỗi đọc cloud: {e}"
-
-    return local_data
-
-
-def _luu_document_shared(path, data):
-    """Ghi local + Supabase có kiểm chứng; danh sách lớn được tách chunk."""
-    local_ok = _luu_json_local(path, data)
-    client_sb = _supabase_client()
-    key = _document_key(path)
-
-    if client_sb is None or not key:
-        return local_ok
-
-    try:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        raw = json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True, default=str)
-        raw_bytes = raw.encode("utf-8")
-
-        if isinstance(data, list) and len(raw_bytes) > _CLOUD_CHUNK_TARGET_BYTES:
-            chunks = _chia_list_theo_dung_luong(data)
-            sha = hashlib.sha256(raw_bytes).hexdigest()
-
-            # Ghi chunks trước, manifest sau. Nếu đang ghi dở mà lỗi, manifest cũ vẫn còn,
-            # nên người dùng không bao giờ đọc phải một bản nửa chừng.
-            for i, chunk in enumerate(chunks):
-                ck = f"{key}::chunk::{i:05d}"
-                client_sb.table("app_documents").upsert(
-                    {
-                        "document_key": ck,
-                        "data": {"items": chunk},
-                        "updated_at": now_iso,
-                    },
-                    on_conflict="document_key",
-                ).execute()
-
-            manifest = {
-                _CLOUD_CHUNK_MARKER: True,
-                "version": 1,
-                "chunk_count": len(chunks),
-                "item_count": len(data),
-                "sha256": sha,
-            }
-            client_sb.table("app_documents").upsert(
-                {
-                    "document_key": key,
-                    "data": manifest,
-                    "updated_at": now_iso,
-                },
-                on_conflict="document_key",
-            ).execute()
-        else:
-            client_sb.table("app_documents").upsert(
-                {
-                    "document_key": key,
-                    "data": data,
-                    "updated_at": now_iso,
-                },
-                on_conflict="document_key",
-            ).execute()
-
-        # XÁC MINH NHANH:
-        # - Dữ liệu chunk lớn: chỉ đọc manifest gốc (1 request), không tải lại toàn bộ
-        #   hàng chục chunk vừa ghi. Mỗi upsert chunk ở trên đã phải execute thành công.
-        # - Dữ liệu nhỏ: vẫn đọc lại trực tiếp như cũ.
-        if isinstance(data, list) and len(raw_bytes) > _CLOUD_CHUNK_TARGET_BYTES:
-            rr = (
-                client_sb.table("app_documents")
-                .select("document_key,data")
-                .eq("document_key", key)
-                .limit(1)
-                .execute()
-            )
-            rows = getattr(rr, "data", None) or []
-            if not rows:
-                raise RuntimeError("Xác minh sau ghi thất bại: không đọc được manifest cloud.")
-            manifest_verify = rows[0].get("data") or {}
-            if not (
-                isinstance(manifest_verify, dict)
-                and manifest_verify.get(_CLOUD_CHUNK_MARKER)
-                and int(manifest_verify.get("item_count", -1)) == len(data)
-                and str(manifest_verify.get("sha256", "")) == sha
-            ):
-                raise RuntimeError("Xác minh sau ghi thất bại: manifest cloud không khớp.")
-        else:
-            verify = _doc_cloud_document(client_sb, key)
-            if isinstance(data, list):
-                if not isinstance(verify, list) or len(verify) != len(data):
-                    raise RuntimeError(
-                        f"Xác minh sau ghi thất bại: local {len(data)} mục, cloud {len(verify) if isinstance(verify, list) else 'không phải danh sách'} mục."
-                    )
-            elif verify != data:
-                raise RuntimeError("Xác minh sau ghi thất bại: dữ liệu cloud khác dữ liệu vừa lưu.")
-
-        _SHARED_WRITE_ERRORS.pop(key, None)
-        _clear_pending_sync(path)
-        return True
-
-    except Exception as e:
-        _SHARED_WRITE_ERRORS[key] = str(e)
-        _mark_pending_sync(path, e)
-        return False
-
-
-def _doc_students_shared():
-    client_sb = _supabase_client()
-    if client_sb is not None:
-        try:
-            res = (
-                client_sb.table("students")
-                .select("student_id,full_name,class_name,active,data")
-                .order("student_id")
-                .execute()
-            )
-            rows = getattr(res, "data", None) or []
-            if rows:
-                ds = []
-                for row in rows:
-                    item = dict(row.get("data") or {})
-                    item.setdefault("ma_hoc_sinh", row.get("student_id", ""))
-                    item.setdefault("ho_ten", row.get("full_name", ""))
-                    item.setdefault("lop", row.get("class_name", ""))
-                    if not str(item.get("trang_thai", "")).strip():
-                        item["trang_thai"] = (
-                            "Đang học" if row.get("active", True) else "Tạm khóa"
-                        )
-                    ds.append(item)
-                return ds
-        except Exception:
-            pass
-
-    data = _doc_json_local(STUDENT_PATH, [])
-    return data if isinstance(data, list) else []
-
-
-def _luu_students_shared(ds):
-    ds = list(ds or [])
-    local_ok = _luu_json_local(STUDENT_PATH, ds)
-    cloud_ok = False
-    client_sb = _supabase_client()
-
-    if client_sb is not None:
-        try:
-            rows = []
-            now_iso = datetime.now(timezone.utc).isoformat()
-            for hs in ds:
-                if not isinstance(hs, dict):
-                    continue
-                sid = str(
-                    hs.get("ma_hoc_sinh")
-                    or hs.get("hoc_sinh_id")
-                    or hs.get("student_id")
-                    or ""
-                ).strip()
-                if not sid:
-                    continue
-                trang_thai = str(hs.get("trang_thai", "Đang học") or "").strip().casefold()
-                active = trang_thai not in {
-                    "tạm khóa", "tam khoa", "nghỉ học", "nghi hoc",
-                    "đã nghỉ", "da nghi", "inactive"
-                }
-                rows.append({
-                    "student_id": sid,
-                    "full_name": str(hs.get("ho_ten", "") or "").strip(),
-                    "class_name": str(hs.get("lop", "") or "").strip(),
-                    "active": active,
-                    "data": hs,
-                    "updated_at": now_iso,
-                })
-
-            for i in range(0, len(rows), 200):
-                batch = rows[i:i + 200]
-                if batch:
-                    client_sb.table("students").upsert(
-                        batch, on_conflict="student_id"
-                    ).execute()
-            cloud_ok = True
-        except Exception:
-            cloud_ok = False
-
-    return cloud_ok or local_ok
-
-
-def _xoa_student_shared(student_id):
-    """Chỉ xóa hồ sơ trong bảng students; lịch sử làm bài được giữ nguyên."""
-    sid = str(student_id or "").strip()
-    if not sid:
-        return False
-    client_sb = _supabase_client()
-    if client_sb is None:
-        return False
-    try:
-        client_sb.table("students").delete().eq("student_id", sid).execute()
-        return True
-    except Exception:
-        return False
-
-
-def _doc_attempts_shared():
-    client_sb = _supabase_client()
-    if client_sb is not None:
-        try:
-            res = (
-                client_sb.table("student_attempts")
-                .select("id,submitted_at,data")
-                .order("submitted_at")
-                .execute()
-            )
-            rows = getattr(res, "data", None) or []
-            if rows:
-                ds = []
-                for row in rows:
-                    item = dict(row.get("data") or {})
-                    # Dữ liệu cũ khi di chuyển có thể chưa có id trong JSON gốc.
-                    # Bơm id của hàng Supabase vào để lần ghi sau vẫn upsert đúng hàng.
-                    if not str(item.get("id", "")).strip():
-                        item["id"] = str(row.get("id", "") or "").strip()
-                    if not str(item.get("thoi_gian_iso", "")).strip():
-                        item["thoi_gian_iso"] = str(row.get("submitted_at", "") or "").strip()
-                    ds.append(item)
-                return ds
-        except Exception:
-            pass
-
-    data = _doc_json_local(HS_HISTORY_PATH, [])
-    return data if isinstance(data, list) else []
-
-
-def _attempt_uuid(value, item):
-    try:
-        return str(uuid.UUID(str(value)))
-    except Exception:
-        raw = json.dumps(item, ensure_ascii=False, sort_keys=True, default=str)
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, raw))
-
-
-def _luu_attempts_shared(ds):
-    """Upsert từng lượt làm bài, không xóa lượt của học sinh khác."""
-    ds = list(ds or [])
-    local_ok = _luu_json_local(HS_HISTORY_PATH, ds)
-    cloud_ok = False
-    client_sb = _supabase_client()
-
-    if client_sb is not None:
-        try:
-            rows = []
-            for lan in ds:
-                if not isinstance(lan, dict):
-                    continue
-                sid = str(
-                    lan.get("hoc_sinh_id")
-                    or lan.get("ma_hoc_sinh")
-                    or ""
-                ).strip()
-                if not sid:
-                    continue
-
-                row_id = _attempt_uuid(lan.get("id"), lan)
-                lan = dict(lan)
-                lan["id"] = row_id
-                pham_vi = lan.get("pham_vi", {}) or {}
-                if not isinstance(pham_vi, dict):
-                    pham_vi = {}
-
-                submitted_at = str(
-                    lan.get("nop_bai_iso")
-                    or lan.get("thoi_gian_iso")
-                    or datetime.now(timezone.utc).isoformat()
-                ).strip()
-
-                try:
-                    score = lan.get("diem_chinh_thuc", lan.get("diem"))
-                    score = float(score) if score is not None else None
-                except Exception:
-                    score = None
-                try:
-                    score_scale = lan.get("thang_diem", 10)
-                    score_scale = float(score_scale) if score_scale is not None else None
-                except Exception:
-                    score_scale = None
-
-                rows.append({
-                    "id": row_id,
-                    "student_id": sid,
-                    "class_name": str(
-                        lan.get("lop") or pham_vi.get("lop") or ""
-                    ).strip(),
-                    "mode": str(lan.get("che_do", "") or "").strip(),
-                    "exam_id": str(
-                        pham_vi.get("de_id") or pham_vi.get("mau_id") or ""
-                    ).strip() or None,
-                    "test_session_id": str(
-                        pham_vi.get("dot_kiem_tra_id") or ""
-                    ).strip() or None,
-                    "submitted_at": submitted_at,
-                    "score": score,
-                    "score_scale": score_scale,
-                    "data": lan,
-                })
-
-            for i in range(0, len(rows), 100):
-                batch = rows[i:i + 100]
-                if batch:
-                    client_sb.table("student_attempts").upsert(
-                        batch, on_conflict="id"
-                    ).execute()
-            cloud_ok = True
-        except Exception:
-            cloud_ok = False
-
-    return cloud_ok or local_ok
-
+# ==========================================================
+# STAGE 6 — ĐƯỜNG NHANH CHO HỌC SINH (không đổi schema)
+# ==========================================================
+from fast_store import (
+    get_student_by_id as _fast_get_student,
+    get_students_by_class as _fast_get_students_class,
+    get_attempts_by_student as _fast_get_attempts_student,
+    get_attempts_by_class as _fast_get_attempts_class,
+    append_attempt as _fast_append_attempt,
+    get_all_questions_v2 as _fast_get_all_questions_v2,
+    get_questions_v2_by_scope as _fast_get_questions_v2_by_scope,
+    get_question_index_v2_by_scope as _fast_get_question_index_v2_by_scope,
+    get_questions_v2_by_ids as _fast_get_questions_v2_by_ids,
+    clear_fast_cache as _clear_fast_store_cache,
+)
 
 # Ảnh/sơ đồ của đề thật: hiển thị vừa đủ để đọc, không kéo tràn toàn bộ màn hình.
 GRAD_IMAGE_DISPLAY_WIDTH = 620
@@ -676,24 +290,46 @@ def cac_nang_luc_phu_hop(yccd, muc_do=None, dang_cau=None):
 
 
 # ==========================================================
-# GEMINI
+# GEMINI — KHỞI TẠO LƯỜI (LAZY)
+# Học sinh không phải chờ tạo client AI ở mỗi lần mở/rerun.
+# Chỉ khi chức năng thực sự gọi AI mới khởi tạo client.
 # ==========================================================
-try:
-    client = genai.Client(
-        api_key=st.secrets["GEMINI_API_KEY"]
-    )
-except Exception:
-    st.error(
-        "Không đọc được GEMINI_API_KEY trong "
-        ".streamlit/secrets.toml"
-    )
-    st.stop()
+_GEMINI_CLIENT = None
+
+def get_gemini_client():
+    global _GEMINI_CLIENT
+    if _GEMINI_CLIENT is not None:
+        return _GEMINI_CLIENT
+    try:
+        api_key = str(st.secrets.get("GEMINI_API_KEY", "") or "").strip()
+    except Exception:
+        api_key = ""
+    if not api_key:
+        raise RuntimeError(
+            "Không đọc được GEMINI_API_KEY trong .streamlit/secrets.toml"
+        )
+    _GEMINI_CLIENT = genai.Client(api_key=api_key)
+    return _GEMINI_CLIENT
 
 
 # ==========================================================
-# ĐỌC YCCĐ
+# ĐỌC YCCĐ — CACHE DÀI HƠN CHO ĐIỀU HƯỚNG NHANH
 # ==========================================================
-KHO_YCCD = _doc_document_shared(YCCD_PATH, None)
+@st.cache_data(ttl=600, show_spinner=False)
+def _doc_yccd_runtime_cached():
+    # STAGE 10 — COLD START HS: bản student ưu tiên file local rất nhẹ.
+    # YCCĐ là dữ liệu cấu trúc ổn định và đã đi cùng bản deploy; tránh một
+    # round-trip Supabase ngay lúc tiến trình Streamlit vừa thức dậy.
+    if APP_MODE == "student":
+        try:
+            local = _doc_json_local(YCCD_PATH, None)
+            if isinstance(local, dict) and local:
+                return local
+        except Exception:
+            pass
+    return _doc_document_shared(YCCD_PATH, None)
+
+KHO_YCCD = _doc_yccd_runtime_cached()
 
 if not isinstance(KHO_YCCD, dict):
     st.error(
@@ -705,23 +341,214 @@ if not isinstance(KHO_YCCD, dict):
 # ==========================================================
 # NGÂN HÀNG CÂU HỎI
 # ==========================================================
+@st.cache_data(ttl=120, show_spinner=False)
+def _doc_ngan_hang_processed_cached():
+    data = _doc_shared_list_cached(BANK_PATH)
+    if not isinstance(data, list):
+        return []
+    # Gán chỉ báo cho dữ liệu cũ đúng 1 lần/cache, thay vì quét cả kho ở mọi rerun.
+    try:
+        return gan_chi_bao_cho_ngan_hang_hien_co(data)
+    except NameError:
+        return data
+
+
 def doc_ngan_hang():
-
-    data = _doc_document_shared(BANK_PATH, [])
-
-    if isinstance(data, list):
-        # Bổ sung mã chỉ báo NT/TH/VD cho câu cũ ngay khi đọc.
-        # Chỉ dùng bộ quy tắc cục bộ, không gọi API.
-        try:
-            return gan_chi_bao_cho_ngan_hang_hien_co(data)
-        except NameError:
-            return data
-
-    return []
+    return _doc_ngan_hang_processed_cached()
 
 
 def luu_ngan_hang(data):
-    return _luu_document_shared(BANK_PATH, data)
+    ok = _luu_document_shared(BANK_PATH, data)
+    try:
+        _doc_ngan_hang_processed_cached.clear()
+    except Exception:
+        pass
+    _clear_shared_read_caches()
+    try:
+        _clear_fast_store_cache()
+    except Exception:
+        pass
+    # Xóa cache ngân hàng theo phiên HS để lượt sau thấy dữ liệu mới.
+    try:
+        for key in list(st.session_state.keys()):
+            if str(key).startswith("_hs_bank_session_"):
+                st.session_state.pop(key, None)
+    except Exception:
+        pass
+    return ok
+
+
+def _chuan_khoi_hs_fast(khoi="", lop=""):
+    """Chuẩn hóa khối HS để truy vấn đúng phần ngân hàng cần dùng."""
+    raw = str(khoi or "").strip()
+    m = re.search(r"(?:khối|khoi|lớp|lop)?\s*(10|11|12)", raw, flags=re.IGNORECASE)
+    if not m:
+        m = re.match(r"\s*(10|11|12)", str(lop or "").strip())
+    if m:
+        return f"Khối {m.group(1)}"
+    return raw
+
+
+def doc_ngan_hang_hs_fast(khoi=""):
+    """
+    Đường đọc nhanh cho HS — ưu tiên questions_v2 theo đúng KHỐI.
+
+    Stage 8:
+    - giữ kết quả theo phiên HS trong 2 phút để đổi bài/chương không gọi mạng lại;
+    - mặc định tin V2 trên đường nóng, không đếm cả kho legacy trước mỗi lần vào học;
+    - có thể bật STRICT_V2_INTEGRITY=true trong secrets nếu muốn kiểm tổng kho trước khi dùng;
+    - nếu V2 lỗi/rỗng vẫn fallback kho legacy an toàn.
+    """
+    khoi_chuan = _chuan_khoi_hs_fast(khoi)
+    cache_key = f"_hs_bank_session_{khoi_chuan or 'ALL'}"
+    now = time.monotonic()
+    cached = st.session_state.get(cache_key)
+    if isinstance(cached, dict):
+        ts = float(cached.get("ts", 0) or 0)
+        data_cached = cached.get("data")
+        if now - ts <= 120 and isinstance(data_cached, list) and data_cached:
+            st.session_state["_hs_fast_bank_source"] = cached.get("source", "session_cache")
+            st.session_state["_hs_fast_bank_scope"] = khoi_chuan
+            return data_cached
+
+    try:
+        strict_check = bool(st.secrets.get("STRICT_V2_INTEGRITY", False))
+    except Exception:
+        strict_check = False
+
+    expected_total = None
+    if strict_check:
+        expected_total = _document_count_cached(BANK_PATH) or None
+
+    try:
+        if khoi_chuan:
+            data_v2 = _fast_get_questions_v2_by_scope(
+                khoi=khoi_chuan,
+                expected_total=expected_total,
+            )
+        else:
+            data_v2 = _fast_get_all_questions_v2(expected_count=expected_total)
+
+        if isinstance(data_v2, list) and data_v2:
+            source = "questions_v2_scope" if khoi_chuan else "questions_v2"
+            st.session_state["_hs_fast_bank_source"] = source
+            st.session_state["_hs_fast_bank_scope"] = khoi_chuan
+            st.session_state[cache_key] = {"ts": now, "data": data_v2, "source": source}
+            return data_v2
+    except Exception:
+        pass
+
+    st.session_state["_hs_fast_bank_source"] = "legacy_fallback"
+    st.session_state["_hs_fast_bank_scope"] = khoi_chuan
+
+    bank = doc_ngan_hang()
+    if khoi_chuan:
+        try:
+            bank_loc = [q for q in bank if _cau_thuoc_pham_vi_luyen_hs(q, khoi=khoi_chuan)]
+            if bank_loc:
+                st.session_state[cache_key] = {"ts": now, "data": bank_loc, "source": "legacy_fallback"}
+                return bank_loc
+        except NameError:
+            pass
+    if bank:
+        st.session_state[cache_key] = {"ts": now, "data": bank, "source": "legacy_fallback"}
+    return bank
+
+
+def doc_chi_muc_ngan_hang_hs_fast(khoi=""):
+    """STAGE 10: dựng menu Bài/Chương từ KHO_YCCD, KHÔNG gọi Supabase.
+
+    Mục tiêu là loại hoàn toàn cache-miss ở lần đầu mở Ôn theo bài/chương.
+    Nội dung câu hỏi thật chỉ được tải sau khi HS bấm BẮT ĐẦU LƯỢT LUYỆN.
+    """
+    khoi_chuan = _chuan_khoi_hs_fast(khoi)
+    out = []
+
+    def _norm_grade(v):
+        m = re.search(r"(10|11|12)", str(v or ""))
+        return m.group(1) if m else str(v or "").strip().casefold()
+
+    target = _norm_grade(khoi_chuan)
+    for khoi_key, ds_chuong in (KHO_YCCD or {}).items():
+        if target and _norm_grade(khoi_key) != target:
+            continue
+        if not isinstance(ds_chuong, dict):
+            continue
+        for chuong, ds_bai in ds_chuong.items():
+            if not isinstance(ds_bai, dict):
+                continue
+            for bai, ds_yccd in ds_bai.items():
+                if isinstance(ds_yccd, list):
+                    yccds = ds_yccd
+                elif isinstance(ds_yccd, dict):
+                    yccds = list(ds_yccd.values())
+                else:
+                    yccds = [ds_yccd]
+
+                # Chỉ cần 1 record nhẹ/Bài để dựng menu.
+                yccd_dai_dien = ""
+                for y in yccds:
+                    if isinstance(y, dict):
+                        y = y.get("YCCĐ") or y.get("yccd") or y.get("noi_dung") or ""
+                    if str(y or "").strip():
+                        yccd_dai_dien = str(y).strip()
+                        break
+
+                out.append({
+                    "id": f"menu::{khoi_key}::{chuong}::{bai}",
+                    "khoi": str(khoi_key),
+                    "chuong": str(chuong),
+                    "bai": str(bai),
+                    "yccd": yccd_dai_dien,
+                    "muc_do": "",
+                    "dang_cau": "",
+                    "trang_thai": "Đã duyệt",
+                    "duoc_dung_luyen_hs": True,
+                    "_chi_muc_only": True,
+                    "_menu_from_yccd": True,
+                })
+
+    return out
+
+
+def doc_pool_hs_theo_pham_vi(khoi="", chuong="", bai=""):
+    """Chỉ tải nội dung đầy đủ của đúng phạm vi HS đã chọn."""
+    khoi_chuan = _chuan_khoi_hs_fast(khoi)
+    cache_key = "_hs_pool_scope_" + "|||".join([
+        str(khoi_chuan or ""), str(chuong or ""), str(bai or "")
+    ])
+    cached = st.session_state.get(cache_key)
+    if isinstance(cached, list) and cached:
+        return cached
+    try:
+        data = _fast_get_questions_v2_by_scope(
+            khoi=khoi_chuan,
+            chuong=str(chuong or "").strip(),
+            bai=str(bai or "").strip(),
+            expected_total=None,
+        )
+        if isinstance(data, list) and data:
+            data = [
+                q for q in data
+                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+                and q.get("duoc_dung_luyen_hs", True)
+            ]
+            st.session_state[cache_key] = data
+            return data
+    except Exception:
+        pass
+
+    # Fallback về kho theo khối, sau đó lọc đúng phạm vi.
+    data = doc_ngan_hang_hs_fast(khoi_chuan)
+    data = [
+        q for q in (data or [])
+        if _cau_thuoc_pham_vi_luyen_hs(q, khoi=khoi_chuan, chuong=chuong, bai=bai)
+        and q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+        and q.get("duoc_dung_luyen_hs", True)
+    ]
+    if data:
+        st.session_state[cache_key] = data
+    return data
 
 
 # ==========================================================
@@ -743,7 +570,7 @@ DEFAULT_GV_PROFILE = {
 def doc_ho_so_giao_vien():
     data = dict(DEFAULT_GV_PROFILE)
     try:
-        saved = _doc_document_shared(GV_PROFILE_PATH, {})
+        saved = _doc_shared_dict_cached(GV_PROFILE_PATH)
         if isinstance(saved, dict):
             data.update({k: v for k, v in saved.items() if k in data})
             # Tương thích các tên trường từng dùng ở phiên bản cũ.
@@ -766,7 +593,9 @@ def doc_ho_so_giao_vien():
 
 
 def luu_ho_so_giao_vien(profile):
-    return _luu_document_shared(GV_PROFILE_PATH, profile)
+    ok = _luu_document_shared(GV_PROFILE_PATH, profile)
+    _clear_shared_read_caches()
+    return ok
 
 
 def _tim_avatar_local_mac_dinh():
@@ -4184,7 +4013,7 @@ def goi_gemini_co_retry(prompt, schema, so_lan_thu=3):
 
     for lan in range(so_lan_thu):
         try:
-            return client.models.generate_content(
+            return get_gemini_client().models.generate_content(
                 model=MODEL_AI,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -6681,6 +6510,7 @@ def trang_chu():
 # ==========================================================
 # KHO YCCĐ
 # ==========================================================
+@_safe_fragment
 def kho_yccd():
 
     st.header("📚 KHO YÊU CẦU CẦN ĐẠT")
@@ -7653,6 +7483,7 @@ def hien_thi_cau_ai(question, index):
 # ==========================================================
 # TẠO CÂU HỎI AI
 # ==========================================================
+@_safe_fragment
 def tao_cau_hoi_ai():
 
     st.header(
@@ -10719,6 +10550,7 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
 
 
 
+@_safe_fragment
 def ngan_hang_cau_hoi():
 
     st.header("🏦 NGÂN HÀNG CÂU HỎI")
@@ -11473,26 +11305,17 @@ def ket_qua_hoc_sinh():
         "📊 KẾT QUẢ HỌC SINH"
     )
 
-    ds = doc_lich_su_hoc_sinh()
-
-    if not ds:
-        st.info(
-            "Chưa có lượt luyện nào được lưu."
-        )
-        return
-
+    # Stage 6: danh sách mã lấy từ bảng students (nhẹ); lịch sử chỉ đọc sau khi GV chọn HS.
+    ds_hoc_sinh_qly = doc_danh_sach_hoc_sinh()
     ds_hs = sorted({
-        str(
-            x.get(
-                "hoc_sinh_id",
-                ""
-            )
-        )
-        for x in ds
-        if x.get(
-            "hoc_sinh_id"
-        )
+        str(x.get("ma_hoc_sinh", "")).strip().upper()
+        for x in ds_hoc_sinh_qly
+        if str(x.get("ma_hoc_sinh", "")).strip()
     })
+
+    if not ds_hs:
+        st.info("Chưa có học sinh trong hệ thống.")
+        return
 
     hs = st.selectbox(
         "Chọn học sinh",
@@ -11635,8 +11458,19 @@ def doc_json_list(path):
     if os.path.abspath(path) == os.path.abspath(STUDENT_PATH):
         return _doc_students_shared()
 
-    data = _doc_document_shared(path, [])
-    return data if isinstance(data, list) else []
+    # Đợt kiểm tra cần phản ánh mở/đóng gần như tức thời.
+    if os.path.abspath(path) == os.path.abspath(MATRIX_TEST_PATH):
+        return _doc_shared_list_live_cached(path)
+
+    # Mẫu đề/đề đã tạo thay đổi ít hơn nhưng vẫn cần thấy nhanh khi GV vừa sửa.
+    if os.path.abspath(path) in {
+        os.path.abspath(EXAM_TEMPLATE_PATH),
+        os.path.abspath(EXAM_PATH),
+    }:
+        return _doc_shared_list_mid_cached(path)
+
+    # Các kho lớn đọc nhiều lần khi đổi menu/widget được cache lâu hơn.
+    return _doc_shared_list_cached(path)
 
 
 def luu_json_list(path, data):
@@ -11644,7 +11478,14 @@ def luu_json_list(path, data):
         return _luu_attempts_shared(data)
     if os.path.abspath(path) == os.path.abspath(STUDENT_PATH):
         return _luu_students_shared(data)
-    return _luu_document_shared(path, data)
+    ok = _luu_document_shared(path, data)
+    _clear_shared_read_caches()
+    try:
+        if os.path.abspath(path) == os.path.abspath(GRAD_REAL_BANK_PATH):
+            doc_ngan_hang_tot_nghiep_thuc_te.clear()
+    except Exception:
+        pass
+    return ok
 
 
 # ==========================================================
@@ -12191,6 +12032,7 @@ def hien_thi_de_xem_truoc(de):
             )
 
 
+@_safe_fragment
 def tao_de_giao_vien():
     st.header(
         "📝 TẠO ĐỀ TỪ NGÂN HÀNG"
@@ -13314,6 +13156,7 @@ def tao_de_giao_vien():
 # ==========================================================
 # GIÁO VIÊN
 # ==========================================================
+@_safe_fragment
 def kho_tai_lieu_gv():
     st.header("📁 KHO TÀI LIỆU GIÁO VIÊN")
 
@@ -13437,20 +13280,12 @@ def tao_ma_hoc_sinh_tu_dong(lop, ds_hien_co):
 
 
 def tim_hoc_sinh_theo_ma(ma):
-    ma_chuan = str(
-        ma or ""
-    ).strip().upper()
+    # Stage 6: truy vấn đúng 1 học sinh thay vì tải toàn bộ bảng students.
+    return _fast_get_student(
+        ma,
+        local_student_path=STUDENT_PATH
+    )
 
-    for hs in doc_danh_sach_hoc_sinh():
-        if str(
-            hs.get(
-                "ma_hoc_sinh",
-                ""
-            )
-        ).strip().upper() == ma_chuan:
-            return hs
-
-    return None
 
 
 def them_hoc_sinh_moi(
@@ -13764,6 +13599,7 @@ def tao_excel_mau_import_hoc_sinh():
 
 
 
+@_safe_fragment
 def quan_ly_hoc_sinh():
     st.header(
         "👥 QUẢN LÝ HỌC SINH"
@@ -14256,13 +14092,13 @@ def lay_danh_sach_lop_tu_hoc_sinh():
 
 
 def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None, bai_key_filter=None):
-    """
-    Tổng hợp trực tiếp từ lịch sử làm bài.
-    Không gọi AI.
-    Đúng/Sai đã được lưu theo từng ý trong don_vi_danh_gia.
-    """
-    lich_su = doc_lich_su_hoc_sinh()
-    ds_hs = doc_danh_sach_hoc_sinh()
+    """Tổng hợp lịch sử. Stage 6: nếu chọn 1 lớp, chỉ đọc đúng lớp đó."""
+    if lop_chon and lop_chon != "Tất cả":
+        ds_hs = _fast_get_students_class(lop_chon, local_student_path=STUDENT_PATH)
+        lich_su = _fast_get_attempts_class(lop_chon, local_history_path=HS_HISTORY_PATH)
+    else:
+        lich_su = doc_lich_su_hoc_sinh()
+        ds_hs = doc_danh_sach_hoc_sinh()
 
     map_hs = {
         str(x.get("ma_hoc_sinh", "")).strip().upper(): x
@@ -14270,11 +14106,7 @@ def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None
     }
 
     if lop_chon and lop_chon != "Tất cả":
-        ma_lop = {
-            ma
-            for ma, hs in map_hs.items()
-            if str(hs.get("lop", "")).strip() == lop_chon
-        }
+        ma_lop = set(map_hs)
         lich_su = [
             x for x in lich_su
             if str(x.get("hoc_sinh_id", "")).strip().upper() in ma_lop
@@ -14285,182 +14117,71 @@ def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None
             che_do_set = {str(x).strip() for x in che_do_filter if str(x).strip()}
         else:
             che_do_set = {str(che_do_filter).strip()}
-        lich_su = [
-            x for x in lich_su
-            if str(x.get("che_do", "")).strip() in che_do_set
-        ]
+        lich_su = [x for x in lich_su if str(x.get("che_do", "")).strip() in che_do_set]
 
     if ten_luot_filter:
         ten_loc = str(ten_luot_filter).strip()
-        lich_su = [
-            x for x in lich_su
-            if str(x.get("ten_luot", "")).strip() == ten_loc
-        ]
+        lich_su = [x for x in lich_su if str(x.get("ten_luot", "")).strip() == ten_loc]
 
     if bai_key_filter:
         key_loc = str(bai_key_filter).strip()
-        lich_su = [
-            x for x in lich_su
-            if khoa_bai_lam_chinh_thuc(x) == key_loc
-        ]
+        lich_su = [x for x in lich_su if khoa_bai_lam_chinh_thuc(x) == key_loc]
 
     tong_hop = {
-        "so_luot": len(lich_su),
-        "_lich_su": lich_su,
-        "hoc_sinh": {},
-        "yccd": {},
-        "muc_do": {},
-        "nang_luc": {},
-        "dang_cau": {},
-        "bai": {},
-        "chuong": {},
+        "so_luot": len(lich_su), "_lich_su": lich_su, "hoc_sinh": {},
+        "yccd": {}, "muc_do": {}, "nang_luc": {}, "dang_cau": {},
+        "bai": {}, "chuong": {},
     }
 
     for lan in lich_su:
-        ma = str(
-            lan.get("hoc_sinh_id", "")
-        ).strip().upper()
-
-        hs_info = map_hs.get(
-            ma,
-            {}
-        )
-
-        hs_stat = tong_hop["hoc_sinh"].setdefault(
-            ma,
-            {
-                "ma": ma,
-                "ho_ten": hs_info.get(
-                    "ho_ten",
-                    lan.get("ho_ten", "")
-                ),
-                "lop": hs_info.get(
-                    "lop",
-                    ""
-                ),
-                "so_luot": 0,
-                "tong_don_vi": 0,
-                "dung_don_vi": 0,
-                "diem": [],
-            }
-        )
-
+        ma = str(lan.get("hoc_sinh_id", "")).strip().upper()
+        hs_info = map_hs.get(ma, {})
+        hs_stat = tong_hop["hoc_sinh"].setdefault(ma, {
+            "ma": ma,
+            "ho_ten": hs_info.get("ho_ten", lan.get("ho_ten", "")),
+            "lop": hs_info.get("lop", lan.get("lop", "")),
+            "so_luot": 0, "tong_don_vi": 0, "dung_don_vi": 0, "diem": [],
+        })
         hs_stat["so_luot"] += 1
-        hs_stat["diem"].append(
-            float(lan.get("diem", 0) or 0)
-        )
+        hs_stat["diem"].append(float(lan.get("diem", 0) or 0))
 
-        for item in lan.get(
-            "chi_tiet",
-            []
-        ) or []:
-            q = item.get(
-                "cau_snapshot",
-                {}
-            ) or {}
-
-            dang = str(
-                item.get(
-                    "dang_cau",
-                    q.get("dang_cau", "")
-                )
-            ).strip()
-
-            bai = str(
-                q.get("bai", "")
-            ).strip()
-
-            chuong = str(
-                q.get("chuong", "")
-            ).strip()
-
-            units = item.get(
-                "don_vi_danh_gia",
-                []
-            ) or []
-
+        for item in lan.get("chi_tiet", []) or []:
+            q = item.get("cau_snapshot", {}) or {}
+            dang = str(item.get("dang_cau", q.get("dang_cau", ""))).strip()
+            bai = str(q.get("bai", "")).strip()
+            chuong = str(q.get("chuong", "")).strip()
+            units = item.get("don_vi_danh_gia", []) or []
             if not units:
                 units = [{
-                    "yccd": q.get("yccd", ""),
-                    "muc_do": q.get("muc_do", ""),
-                    "nang_luc": q.get(
-                        "thanh_phan_nang_luc",
-                        ""
-                    ),
-                    "dung": bool(
-                        item.get(
-                            "dung_toan_cau"
-                        )
-                    )
+                    "yccd": q.get("yccd", ""), "muc_do": q.get("muc_do", ""),
+                    "nang_luc": q.get("thanh_phan_nang_luc", ""),
+                    "dung": bool(item.get("dung_toan_cau"))
                 }]
 
             for unit in units:
-                dung = bool(
-                    unit.get("dung")
-                )
-
+                dung = bool(unit.get("dung"))
                 hs_stat["tong_don_vi"] += 1
-                hs_stat["dung_don_vi"] += int(
-                    dung
-                )
+                hs_stat["dung_don_vi"] += int(dung)
 
                 def cap_nhat(bucket, key):
-                    key = str(
-                        key or ""
-                    ).strip()
-
+                    key = str(key or "").strip()
                     if not key:
                         return
-
-                    s = bucket.setdefault(
-                        key,
-                        {
-                            "tong": 0,
-                            "dung": 0,
-                            "sai": 0,
-                            "hoc_sinh_sai": set()
-                        }
-                    )
-
+                    s = bucket.setdefault(key, {"tong": 0, "dung": 0, "sai": 0, "hoc_sinh_sai": set()})
                     s["tong"] += 1
-                    s["dung"] += int(
-                        dung
-                    )
-                    s["sai"] += int(
-                        not dung
-                    )
-
+                    s["dung"] += int(dung)
+                    s["sai"] += int(not dung)
                     if not dung and ma:
-                        s["hoc_sinh_sai"].add(
-                            ma
-                        )
+                        s["hoc_sinh_sai"].add(ma)
 
-                cap_nhat(
-                    tong_hop["yccd"],
-                    unit.get("yccd", "")
-                )
-                cap_nhat(
-                    tong_hop["muc_do"],
-                    unit.get("muc_do", "")
-                )
-                cap_nhat(
-                    tong_hop["nang_luc"],
-                    unit.get("nang_luc", "")
-                )
-                cap_nhat(
-                    tong_hop["dang_cau"],
-                    dang
-                )
-                cap_nhat(
-                    tong_hop["bai"],
-                    bai
-                )
-                cap_nhat(
-                    tong_hop["chuong"],
-                    chuong
-                )
-
+                cap_nhat(tong_hop["yccd"], unit.get("yccd", ""))
+                cap_nhat(tong_hop["muc_do"], unit.get("muc_do", ""))
+                cap_nhat(tong_hop["nang_luc"], unit.get("nang_luc", ""))
+                cap_nhat(tong_hop["dang_cau"], dang)
+                cap_nhat(tong_hop["bai"], bai)
+                cap_nhat(tong_hop["chuong"], chuong)
     return tong_hop
+
 
 
 def bang_thong_ke_bucket(bucket, ten_cot):
@@ -14507,6 +14228,7 @@ def bang_thong_ke_bucket(bucket, ten_cot):
     return rows
 
 
+@_safe_fragment
 def phan_tich_lop_hoc():
     st.header(
         "📊 PHÂN TÍCH LỚP HỌC"
@@ -15243,37 +14965,40 @@ def tinh_diem_xep_hang_hoc_sinh(lich_su):
     }
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def tinh_bang_xep_hang_lop(lop_chon):
     """
-    Tính bảng xếp hạng nội bộ của MỘT LỚP.
-    Giao diện HS chỉ lấy đúng dòng của chính HS; không lộ danh sách bạn khác.
+    Stage 6: chỉ đọc students + student_attempts của đúng lớp, không tải toàn trường.
     """
     lop_chon = str(lop_chon or "").strip()
-    ds_hs = doc_danh_sach_hoc_sinh()
-    lich_su_all = doc_lich_su_hoc_sinh()
+    if not lop_chon or lop_chon == "Tất cả":
+        # Giữ hành vi cũ cho trang GV tổng hợp toàn trường.
+        ds_hs = doc_danh_sach_hoc_sinh()
+        lich_su_all = doc_lich_su_hoc_sinh()
+    else:
+        ds_hs = _fast_get_students_class(
+            lop_chon, local_student_path=STUDENT_PATH
+        )
+        lich_su_all = _fast_get_attempts_class(
+            lop_chon, local_history_path=HS_HISTORY_PATH
+        )
 
-    if lop_chon and lop_chon != "Tất cả":
-        ds_hs = [
-            hs for hs in ds_hs
-            if str(hs.get("lop", "")).strip() == lop_chon
-        ]
+    attempts_by_sid = {}
+    for x in lich_su_all:
+        sid = str(x.get("hoc_sinh_id", "") or "").strip().upper()
+        if sid:
+            attempts_by_sid.setdefault(sid, []).append(x)
 
     rows = []
     for hs in ds_hs:
-        ma = str(hs.get("ma_hoc_sinh", "")).strip().upper()
+        ma = str(hs.get("ma_hoc_sinh", "") or "").strip().upper()
         if not ma:
             continue
-
-        ls_hs = [
-            x for x in lich_su_all
-            if str(x.get("hoc_sinh_id", "")).strip().upper() == ma
-        ]
+        ls_hs = attempts_by_sid.get(ma, [])
         if not ls_hs:
             continue
-
         diem = tinh_diem_xep_hang_hoc_sinh(ls_hs)
         tien_bo = tinh_tien_bo_hoc_sinh(ls_hs)
-
         rows.append({
             "ma_hoc_sinh": ma,
             "ho_ten": hs.get("ho_ten", ""),
@@ -15287,23 +15012,18 @@ def tinh_bang_xep_hang_lop(lop_chon):
             "muc_thay_doi": tien_bo["chenh_lech"],
         })
 
-    # Nếu không chỉ định lớp thì vẫn không dùng bảng này để công bố xếp hạng
-    # toàn trường. Khi GV xem "Tất cả", hàm tổng hợp sẽ tính hạng theo từng lớp.
-    rows.sort(
-        key=lambda r: (
-            -float(r.get("diem_xep_hang", 0) or 0),
-            -float(r.get("gan_day", 0) or 0),
-            -float(r.get("tich_luy", 0) or 0),
-            -int(r.get("tong_don_vi", 0) or 0),
-            str(r.get("ho_ten", "")),
-        )
-    )
-
+    rows.sort(key=lambda r: (
+        -float(r.get("diem_xep_hang", 0) or 0),
+        -float(r.get("gan_day", 0) or 0),
+        -float(r.get("tich_luy", 0) or 0),
+        -int(r.get("tong_don_vi", 0) or 0),
+        str(r.get("ho_ten", "")),
+    ))
     for idx, row in enumerate(rows, start=1):
         row["hang"] = idx
         row["si_so_co_du_lieu"] = len(rows)
-
     return rows
+
 
 
 def lay_xep_hang_ca_nhan_hs(ma_hoc_sinh, lop):
@@ -15673,126 +15393,68 @@ def hien_thi_the_tien_bo_day_du(row, index=None):
 
 
 def tong_hop_hoc_sinh_theo_lop(lop_chon):
-    ds_hs = doc_danh_sach_hoc_sinh()
-    lich_su = doc_lich_su_hoc_sinh()
-
+    # Stage 6: một lớp chỉ tạo 2 truy vấn chính (students + attempts),
+    # sau đó tính toàn bộ HS trong RAM; không query từng HS lặp lại.
     if lop_chon and lop_chon != "Tất cả":
-        ds_hs = [
-            hs
-            for hs in ds_hs
-            if str(hs.get("lop", "")).strip() == lop_chon
-        ]
+        ds_hs = _fast_get_students_class(lop_chon, local_student_path=STUDENT_PATH)
+        lich_su = _fast_get_attempts_class(lop_chon, local_history_path=HS_HISTORY_PATH)
+    else:
+        ds_hs = doc_danh_sach_hoc_sinh()
+        lich_su = doc_lich_su_hoc_sinh()
 
-    # Hạng luôn được tính TRONG TỪNG LỚP, kể cả khi GV chọn "Tất cả".
-    cac_lop = sorted({
-        str(hs.get("lop", "")).strip()
-        for hs in ds_hs
-        if str(hs.get("lop", "")).strip()
-    })
+    attempts_by_sid = {}
+    for x in lich_su:
+        sid = str(x.get("hoc_sinh_id", "")).strip().upper()
+        if sid:
+            attempts_by_sid.setdefault(sid, []).append(x)
+
+    cac_lop = sorted({str(hs.get("lop", "")).strip() for hs in ds_hs if str(hs.get("lop", "")).strip()})
     xep_hang_map = {}
+    # Không gọi lại DB: tính hạng trực tiếp từ attempts_by_sid đã có.
     for lop in cac_lop:
-        for r in tinh_bang_xep_hang_lop(lop):
-            xep_hang_map[str(r.get("ma_hoc_sinh", "")).strip().upper()] = r
+        ds_lop = [hs for hs in ds_hs if str(hs.get("lop", "")).strip() == lop]
+        temp = []
+        for hs in ds_lop:
+            ma = str(hs.get("ma_hoc_sinh", "")).strip().upper()
+            ls_hs = attempts_by_sid.get(ma, [])
+            if not ls_hs:
+                continue
+            d = tinh_diem_xep_hang_hoc_sinh(ls_hs)
+            tb = tinh_tien_bo_hoc_sinh(ls_hs)
+            temp.append({
+                "ma_hoc_sinh": ma, "ho_ten": hs.get("ho_ten", ""), "lop": lop,
+                "diem_xep_hang": d["diem_xep_hang"], "tich_luy": d["tich_luy"],
+                "gan_day": d["gan_day"], "so_luot": d["so_luot"], "tong_don_vi": d["tong_don_vi"],
+                "xu_huong": tb["xu_huong"], "muc_thay_doi": tb["chenh_lech"]
+            })
+        temp.sort(key=lambda r: (-float(r.get("diem_xep_hang",0)), -float(r.get("gan_day",0)), -float(r.get("tich_luy",0)), -int(r.get("tong_don_vi",0)), str(r.get("ho_ten",""))))
+        for i,r in enumerate(temp,1):
+            r["hang"] = i; r["si_so_co_du_lieu"] = len(temp)
+            xep_hang_map[r["ma_hoc_sinh"]] = r
 
     rows = []
-
     for hs in ds_hs:
-        ma = str(
-            hs.get(
-                "ma_hoc_sinh",
-                ""
-            )
-        ).strip().upper()
-
-        ls_hs = [
-            x
-            for x in lich_su
-            if str(
-                x.get(
-                    "hoc_sinh_id",
-                    ""
-                )
-            ).strip().upper() == ma
-        ]
-
-        tb = tinh_tien_bo_hoc_sinh(
-            ls_hs
-        )
-
-        tb_thuc = tom_tat_tien_bo_thuc(
-            ls_hs
-        )
-
-        profile = tao_ho_so_tu_lich_su(
-            ma
-        )
-
-        weak = tom_tat_diem_yeu(
-            profile,
-            3
-        )
-
-        noi_dung_yeu = " | ".join(
-            [
-                str(
-                    x.get(
-                        "yccd",
-                        ""
-                    )
-                ).strip()
-                for x in weak
-                if str(
-                    x.get(
-                        "yccd",
-                        ""
-                    )
-                ).strip()
-            ]
-        )
-
+        ma = str(hs.get("ma_hoc_sinh", "")).strip().upper()
+        ls_hs = attempts_by_sid.get(ma, [])
+        tb = tinh_tien_bo_hoc_sinh(ls_hs)
+        tb_thuc = tom_tat_tien_bo_thuc(ls_hs)
+        profile = tao_ho_so_tu_lich_su(ma, lich_su=ls_hs)
+        weak = tom_tat_diem_yeu(profile, 3)
+        noi_dung_yeu = " | ".join([str(x.get("yccd", "")).strip() for x in weak if str(x.get("yccd", "")).strip()])
         xh_row = xep_hang_map.get(ma, {})
-
         rows.append({
-            "Mã học sinh": ma,
-            "Họ và tên": hs.get(
-                "ho_ten",
-                ""
-            ),
-            "Lớp": hs.get(
-                "lop",
-                ""
-            ),
-            "Khối": hs.get(
-                "khoi",
-                ""
-            ),
-            "Hạng lớp": xh_row.get("hang", "—"),
-            "Điểm xếp hạng": xh_row.get("diem_xep_hang", 0),
-            "Mức làm chủ tích lũy (%)": xh_row.get("tich_luy", 0),
-            "Kết quả 3 lượt gần (%)": xh_row.get("gan_day", 0),
-            "Số lượt": tb["so_luot"],
-            "Điểm TB": tb["diem_tb"],
-            "Tỉ lệ đúng TB (%)": tb["ti_le_tb"],
-            "Điểm giai đoạn đầu": tb["diem_dau"],
-            "Điểm gần đây": tb["diem_gan_day"],
-            "Mức thay đổi": tb["chenh_lech"],
-            "Xu hướng": tb["xu_huong"],
-            "Đơn vị đang tiến bộ": tb_thuc["dang_tien_bo"],
-            "Đơn vị đạt": tb_thuc["dat"],
-            "Đơn vị thành thạo": tb_thuc["thanh_thao"],
-            "Đơn vị cần củng cố": tb_thuc["can_cung_co"],
+            "Mã học sinh": ma, "Họ và tên": hs.get("ho_ten", ""), "Lớp": hs.get("lop", ""), "Khối": hs.get("khoi", ""),
+            "Hạng lớp": xh_row.get("hang", "—"), "Điểm xếp hạng": xh_row.get("diem_xep_hang", 0),
+            "Mức làm chủ tích lũy (%)": xh_row.get("tich_luy", 0), "Kết quả 3 lượt gần (%)": xh_row.get("gan_day", 0),
+            "Số lượt": tb["so_luot"], "Điểm TB": tb["diem_tb"], "Tỉ lệ đúng TB (%)": tb["ti_le_tb"],
+            "Điểm giai đoạn đầu": tb["diem_dau"], "Điểm gần đây": tb["diem_gan_day"], "Mức thay đổi": tb["chenh_lech"],
+            "Xu hướng": tb["xu_huong"], "Đơn vị đang tiến bộ": tb_thuc["dang_tien_bo"], "Đơn vị đạt": tb_thuc["dat"],
+            "Đơn vị thành thạo": tb_thuc["thanh_thao"], "Đơn vị cần củng cố": tb_thuc["can_cung_co"],
             "Nội dung cần ưu tiên": noi_dung_yeu
         })
-
-    rows.sort(
-        key=lambda x: (
-            x["Lớp"],
-            999999 if x.get("Hạng lớp") == "—" else int(x.get("Hạng lớp", 999999)),
-            x["Họ và tên"]
-        )
-    )
-
+    rows.sort(key=lambda x: (x["Lớp"], 999999 if x.get("Hạng lớp") == "—" else int(x.get("Hạng lớp",999999)), x["Họ và tên"]))
     return rows
+
 
 
 def tao_excel_tong_hop_hoc_sinh_lop(lop_chon):
@@ -15805,12 +15467,13 @@ def tao_excel_tong_hop_hoc_sinh_lop(lop_chon):
         lop_chon
     )
 
-    lich_su = doc_lich_su_hoc_sinh()
+    lich_su = (
+        _fast_get_attempts_class(lop_chon, local_history_path=HS_HISTORY_PATH)
+        if lop_chon and lop_chon != "Tất cả"
+        else doc_lich_su_hoc_sinh()
+    )
 
-    ma_hs = {
-        r["Mã học sinh"]
-        for r in rows
-    }
+    ma_hs = {r["Mã học sinh"] for r in rows}
 
     chi_tiet = []
 
@@ -16248,6 +15911,7 @@ def tao_excel_tong_hop_chung_lop(lop_chon):
     return output.getvalue()
 
 
+@_safe_fragment
 def du_lieu_va_tien_bo_hoc_sinh():
     st.header(
         "🗂️ DỮ LIỆU & TIẾN BỘ HỌC SINH"
@@ -17433,6 +17097,7 @@ def doc_text_tu_file_hat_giong(file):
     return ""
 
 
+@st.cache_data(show_spinner=False)
 def tao_file_mau_hat_giong_docx_bytes():
     """Tạo file Word mẫu hạt giống ngay trong RAM để GV tải xuống."""
     from docx import Document
@@ -18798,43 +18463,79 @@ def _seed_chuyen_thanh_cau_ngan_hang(seed):
     return q
 
 
-def _seed_tim_trung_chinh_xac_ngan_hang(q, bank):
+def _seed_them_vao_index_trung_chinh_xac(index, old):
+    """Đưa 1 câu NH vào index chống trùng O(1), giữ nguyên quy tắc so trùng cũ."""
+    if not isinstance(index, dict) or not isinstance(old, dict):
+        return
+
+    src_old = str(old.get("nguon_file", old.get("nguon", "")) or "").strip().casefold()
+    num_old = str(old.get("so_cau_goc", "") or "").strip()
+    dang_old = str(old.get("dang_cau", "") or "").strip()
+    if src_old and num_old and dang_old:
+        index.setdefault("by_source", {}).setdefault((src_old, num_old, dang_old), old)
+
+    key_old = _seed_noi_dung_bank_key(old)
+    if key_old:
+        index.setdefault("by_content", {}).setdefault(key_old, old)
+
+    stem_old = chuan_hoa_noi_dung_trung(
+        str(old.get("cau_hoi", "") or old.get("tinh_huong", ""))
+    )
+    if stem_old:
+        if not list(old.get("lua_chon", []) or []):
+            index.setdefault("mcq_incomplete", {}).setdefault(stem_old, old)
+        if not list(old.get("nhan_dinh_meta", []) or []):
+            index.setdefault("tf_incomplete", {}).setdefault(stem_old, old)
+
+
+def _seed_tao_index_trung_chinh_xac_ngan_hang(bank):
+    """Tạo index 1 lần thay vì quét toàn bộ NH cho từng câu hạt giống."""
+    index = {
+        "by_source": {},
+        "by_content": {},
+        "mcq_incomplete": {},
+        "tf_incomplete": {},
+    }
+    for old in bank or []:
+        _seed_them_vao_index_trung_chinh_xac(index, old)
+    return index
+
+
+def _seed_tim_trung_chinh_xac_ngan_hang(q, bank, exact_index=None):
     """Chỉ coi là trùng tự động khi nội dung chuẩn hoá bằng nhau.
 
-    Có thêm đường nâng cấp cho dữ liệu cũ bị lỗi parser: cùng thân câu nhưng bản cũ
-    thiếu lựa chọn/nhận định thì xem là cùng câu để bổ sung metadata, không tạo bản sao.
+    Bản tối ưu: nếu có exact_index thì tra O(1), không quét lại toàn bộ
+    ngân hàng cho mỗi câu. Quy tắc nhận diện vẫn giữ nguyên như trước.
     """
-    key_new=_seed_noi_dung_bank_key(q)
-    stem_new=chuan_hoa_noi_dung_trung(str(q.get("cau_hoi", "") or q.get("tinh_huong", "")))
+    index = exact_index if isinstance(exact_index, dict) else _seed_tao_index_trung_chinh_xac_ngan_hang(bank)
+
     src_new = str(q.get("nguon_file", q.get("nguon", "")) or "").strip().casefold()
     num_new = str(q.get("so_cau_goc", "") or "").strip()
-    for old in bank or []:
-        # Cùng file + cùng số câu CHỈ được coi là cùng câu khi CÙNG DẠNG.
-        # Trong file hạt giống, số câu thường được đánh lại từ 1 ở mỗi phần
-        # (MCQ / Đúng-Sai / Trả lời ngắn). Nếu bỏ điều kiện cùng dạng,
-        # Câu 1 Đ/S hoặc TL ngắn sẽ bị nhầm với Câu 1 MCQ.
-        src_old = str(old.get("nguon_file", old.get("nguon", "")) or "").strip().casefold()
-        num_old = str(old.get("so_cau_goc", "") or "").strip()
-        dang_old = str(old.get("dang_cau", "") or "").strip()
-        dang_new = str(q.get("dang_cau", "") or "").strip()
-        if (
-            src_new and num_new
-            and src_old == src_new
-            and num_old == num_new
-            and dang_old == dang_new
-        ):
+    dang_new = str(q.get("dang_cau", "") or "").strip()
+    if src_new and num_new and dang_new:
+        old = index.get("by_source", {}).get((src_new, num_new, dang_new))
+        if old is not None:
             return old, 1.0
-        key_old=_seed_noi_dung_bank_key(old)
-        if key_new and key_old and key_new == key_old:
+
+    key_new = _seed_noi_dung_bank_key(q)
+    if key_new:
+        old = index.get("by_content", {}).get(key_new)
+        if old is not None:
             return old, 1.0
-        # Sửa dữ liệu cũ đã nhập từ hạt giống nhưng bị mất A-D/a-d.
-        stem_old=chuan_hoa_noi_dung_trung(str(old.get("cau_hoi", "") or old.get("tinh_huong", "")))
-        old_incomplete = (
-            (q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" and not list(old.get("lua_chon", []) or []))
-            or (q.get("dang_cau") == "Đúng / Sai" and not list(old.get("nhan_dinh_meta", []) or []))
-        )
-        if old_incomplete and stem_new and stem_old and stem_new == stem_old:
-            return old, 1.0
+
+    stem_new = chuan_hoa_noi_dung_trung(
+        str(q.get("cau_hoi", "") or q.get("tinh_huong", ""))
+    )
+    if stem_new:
+        if dang_new == "Trắc nghiệm 4 lựa chọn":
+            old = index.get("mcq_incomplete", {}).get(stem_new)
+            if old is not None:
+                return old, 1.0
+        elif dang_new == "Đúng / Sai":
+            old = index.get("tf_incomplete", {}).get(stem_new)
+            if old is not None:
+                return old, 1.0
+
     return None, 0.0
 
 
@@ -19054,6 +18755,7 @@ def dong_bo_hat_giong_an_toan_sang_ngan_hang(
     chi_seed_ids=None,
     bank_main=None,
     kiem_tra_gan_trung=False,
+    bank_exact_index=None,
 ):
     """Đồng bộ câu đủ metadata sang ngân hàng chính, chỉ dùng chống trùng cục bộ.
 
@@ -19063,6 +18765,11 @@ def dong_bo_hat_giong_an_toan_sang_ngan_hang(
     seed_bank = seed_bank if seed_bank is not None else doc_ngan_hang_hat_giong()
     # Nếu màn hình nhập đã đọc NH chính rồi thì dùng lại, tránh tải toàn bộ Supabase lần nữa.
     bank = bank_main if isinstance(bank_main, list) else doc_ngan_hang()
+    exact_index = (
+        bank_exact_index
+        if isinstance(bank_exact_index, dict)
+        else _seed_tao_index_trung_chinh_xac_ngan_hang(bank)
+    )
     chi_seed_ids = {
         str(x or "").strip() for x in (chi_seed_ids or []) if str(x or "").strip()
     }
@@ -19082,6 +18789,7 @@ def dong_bo_hat_giong_an_toan_sang_ngan_hang(
             old_main = main_theo_seed.get(sid)
             if q_cap_nhat is not None and old_main is not None:
                 _seed_bo_sung_main_tu_nguon(old_main, q_cap_nhat)
+                _seed_them_vao_index_trung_chinh_xac(exact_index, old_main)
             seed["da_chuyen_sang_ngan_hang"] = True
             seed["trang_thai_dong_bo"] = "Đã có trong ngân hàng chính"
             bo_qua += 1
@@ -19092,9 +18800,12 @@ def dong_bo_hat_giong_an_toan_sang_ngan_hang(
         q = _seed_chuyen_thanh_cau_ngan_hang(seed)
         if not q or not str(q.get("cau_hoi", "")).strip():
             seed["trang_thai_dong_bo"] = "Không chuyển được cấu trúc câu"; bo_qua += 1; continue
-        old_exact, ti_le = _seed_tim_trung_chinh_xac_ngan_hang(q, bank)
+        old_exact, ti_le = _seed_tim_trung_chinh_xac_ngan_hang(
+            q, bank, exact_index=exact_index
+        )
         if old_exact is not None:
             _seed_bo_sung_main_tu_nguon(old_exact, q)
+            _seed_them_vao_index_trung_chinh_xac(exact_index, old_exact)
             seed["da_chuyen_sang_ngan_hang"] = True
             seed["trang_thai_dong_bo"] = "Đã có trong ngân hàng chính"
             seed["id_cau_trung_ngan_hang"] = str(old_exact.get("id", ""))
@@ -19114,6 +18825,7 @@ def dong_bo_hat_giong_an_toan_sang_ngan_hang(
         q["nguon_tao"] = "Hạt giống đã chuẩn hóa trước khi nhập"
         q["trang_thai"] = "Đã duyệt từ nguồn chuẩn hóa"
         bank.append(q)
+        _seed_them_vao_index_trung_chinh_xac(exact_index, q)
         if sid:
             da_co_seed.add(sid)
             main_theo_seed[sid] = q
@@ -20165,6 +19877,7 @@ def _sao_luu_ngan_hang_chinh_truoc_khi_don(bank, ly_do="don_hat_giong"):
         json.dump(bank, f, ensure_ascii=False, indent=2)
     return path
 
+@_safe_fragment
 def ngan_hang_hat_giong():
     st.header("🌱 NGÂN HÀNG HẠT GIỐNG")
     st.caption(
@@ -20178,6 +19891,11 @@ def ngan_hang_hat_giong():
         "Khi nhập, app chỉ tách câu, đọc metadata và chống trùng chính xác bằng Python cục bộ — không dùng Gemini. "
         "So gần trùng tốn CPU được bỏ khỏi bước nhập để tăng tốc."
     )
+
+    # Nếu vừa nhập xong trong chính lượt fragment này, tái sử dụng hai kho đã có
+    # trong RAM; không tải lại Supabase ngay sau khi vừa ghi xong.
+    _seed_bank_runtime = None
+    _main_bank_runtime = None
 
     try:
         st.download_button(
@@ -20217,8 +19935,14 @@ def ngan_hang_hat_giong():
             status_box = st.empty()
             status_box.info("1/4 Đang đọc dữ liệu hiện có...")
 
-            bank_seed = doc_ngan_hang_hat_giong()
+            bank_seed = (
+        _seed_bank_runtime
+        if isinstance(_seed_bank_runtime, list)
+        else doc_ngan_hang_hat_giong()
+    )
             bank_main = doc_ngan_hang()
+            # Index NH chính đúng 1 lần cho cả lượt nhập.
+            bank_exact_index = _seed_tao_index_trung_chinh_xac_ngan_hang(bank_main)
 
             # Index một lần. Bản cũ mỗi câu mới lại quét + băm toàn bộ kho hạt giống,
             # làm thời gian tăng theo O(số câu mới × số câu cũ).
@@ -20341,7 +20065,9 @@ def ngan_hang_hat_giong():
                     if ok_sync:
                         q_bank = _seed_chuyen_thanh_cau_ngan_hang(q)
                         if q_bank:
-                            old_main, _ = _seed_tim_trung_chinh_xac_ngan_hang(q_bank, bank_main)
+                            old_main, _ = _seed_tim_trung_chinh_xac_ngan_hang(
+                                q_bank, bank_main, exact_index=bank_exact_index
+                            )
                             if old_main is not None:
                                 trung_main += 1; trung_main_file += 1
                                 q["id_cau_trung_ngan_hang"] = str(old_main.get("id", ""))
@@ -20367,18 +20093,24 @@ def ngan_hang_hat_giong():
 
             # KHÔNG lưu seed bank một lần riêng ở đây nữa. Hàm đồng bộ bên dưới
             # sẽ ghi seed + NH chính đúng 1 lần mỗi kho. Bản cũ ghi seed hai lần.
+            _seed_sync_t0 = time.perf_counter()
             da_chuyen, bo_qua_sync = dong_bo_hat_giong_an_toan_sang_ngan_hang(
                 bank_seed,
                 chi_seed_ids=seed_ids_can_sync,
                 bank_main=bank_main,
                 kiem_tra_gan_trung=False,
+                bank_exact_index=bank_exact_index,
             )
+            _seed_sync_seconds = time.perf_counter() - _seed_sync_t0
+            _seed_bank_runtime = bank_seed
+            _main_bank_runtime = bank_main
             ok_seed_save = True  # local được ghi trong hàm đồng bộ
             ok_seed_cloud = not _co_pending_sync(SEED_BANK_PATH)
             ok_bank_cloud = not _co_pending_sync(BANK_PATH)
 
             progress.progress(100)
             status_box.success("4/4 Hoàn tất nhập và đồng bộ.")
+            st.caption(f"⚡ Thời gian đồng bộ Hạt giống → Ngân hàng: {_seed_sync_seconds:.1f} giây")
 
             if ok_seed_save and ok_seed_cloud and ok_bank_cloud:
                 st.success(
@@ -20414,7 +20146,11 @@ def ngan_hang_hat_giong():
     # Kể cả khi file/câu tương ứng đã bị xóa khỏi Ngân hàng hạt giống.
     # Dựa trên dấu vết bền vững: nguon_seed_id / nguon_tao / nguon_file.
     # ======================================================
-    bank_main_hien_tai = doc_ngan_hang()
+    bank_main_hien_tai = (
+        _main_bank_runtime
+        if isinstance(_main_bank_runtime, list)
+        else doc_ngan_hang()
+    )
 
     # Kiểm tra chênh lệch tên file nguồn giữa Hạt giống và NH chung.
     nguon_seed_hien_co = sorted({
@@ -20712,6 +20448,7 @@ def ngan_hang_hat_giong():
 # ==========================================================
 # NGÂN HÀNG TỐT NGHIỆP TỪ ĐỀ THẬT / ĐỀ THI THỬ
 # ==========================================================
+@st.cache_data(ttl=120, show_spinner=False)
 def doc_ngan_hang_tot_nghiep_thuc_te():
     """
     Đọc ngân hàng đề thật và tự nâng cấp dữ liệu cũ.
@@ -20742,7 +20479,12 @@ def doc_ngan_hang_tot_nghiep_thuc_te():
 
 
 def luu_ngan_hang_tot_nghiep_thuc_te(ds):
-    luu_json_list(GRAD_REAL_BANK_PATH, ds)
+    ok = luu_json_list(GRAD_REAL_BANK_PATH, ds)
+    try:
+        doc_ngan_hang_tot_nghiep_thuc_te.clear()
+    except Exception:
+        pass
+    return ok
 
 
 def _grad_norm_text(value):
@@ -22260,7 +22002,7 @@ Yêu cầu:
         except Exception:
             pass
 
-    response = client.models.generate_content(
+    response = get_gemini_client().models.generate_content(
         model=MODEL_AI,
         contents=contents,
         config=types.GenerateContentConfig(
@@ -23085,6 +22827,7 @@ def hien_thi_kho_cau_tot_nghiep_da_nhap(bank):
             st.rerun()
 
 
+@_safe_fragment
 def xay_dung_ngan_hang_tot_nghiep():
     st.header("🎓 NGÂN HÀNG TỐT NGHIỆP – ĐỀ THẬT / ĐỀ THI THỬ")
     st.caption(
@@ -23879,6 +23622,7 @@ def tao_excel_bang_diem_lop(ds_luot, lop_chon=""):
     return output.getvalue()
 
 
+@_safe_fragment
 def quan_ly_diem_on_kiem_tra():
     st.header("🧾 ĐIỂM ÔN / KIỂM TRA THEO LỚP")
     st.caption(
@@ -24071,7 +23815,8 @@ def giao_vien():
                 cau_hinh.get("Số câu", 1)
             )
 
-        bank = doc_ngan_hang()
+        # Chỉ cần số lượng ở sidebar: đọc manifest/count thay vì tải toàn bộ NH.
+        bank_count = _document_count_cached(BANK_PATH)
 
         st.write(
             f"✅ YCCĐ đã chọn: "
@@ -24085,7 +23830,7 @@ def giao_vien():
 
         st.write(
             f"🏦 Ngân hàng: "
-            f"**{len(bank)} câu**"
+            f"**{bank_count} câu**"
         )
 
         if so_yccd > 0:
@@ -24112,7 +23857,6 @@ def giao_vien():
 
     hien_thi_dau_trang_tram_sinh_hoc("giaovien")
 
-    profile = _nang_cap_avatar_profile_ben_vung(doc_ho_so_giao_vien())
     st.markdown(
         f"""
         <div style="max-width:1180px;margin:0 auto .95rem auto;padding:.66rem .88rem;
@@ -24192,17 +23936,21 @@ def luu_lich_su_hoc_sinh(ds):
     return _luu_attempts_shared(ds)
 
 
-def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
-    hid = chuan_hoa_ma_hoc_sinh(
-        hoc_sinh_id
+def them_luot_lam_hoc_sinh(ban_ghi):
+    """Ghi đúng 1 lượt làm; không tải/ghi lại lịch sử toàn trường."""
+    return _fast_append_attempt(
+        ban_ghi,
+        local_history_path=HS_HISTORY_PATH
     )
-    return [
-        x
-        for x in doc_lich_su_hoc_sinh()
-        if chuan_hoa_ma_hoc_sinh(
-            x.get("hoc_sinh_id", "")
-        ) == hid
-    ]
+
+
+def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
+    # Stage 6: chỉ SELECT lịch sử của chính học sinh này.
+    return _fast_get_attempts_student(
+        hoc_sinh_id,
+        local_history_path=HS_HISTORY_PATH
+    )
+
 
 
 def khoa_nang_luc(yccd, muc_do, nang_luc, chi_bao=""):
@@ -24214,79 +23962,77 @@ def khoa_nang_luc(yccd, muc_do, nang_luc, chi_bao=""):
     ])
 
 
-def tao_ho_so_tu_lich_su(hoc_sinh_id):
+def tao_ho_so_tu_lich_su(hoc_sinh_id, lich_su=None):
     """
-    Hồ sơ động theo từng đơn vị đánh giá:
-    YCCĐ × mức độ × thành phần năng lực.
+    Hồ sơ động theo YCCĐ × mức độ × năng lực × chỉ báo.
+    Stage 6: chỉ đọc lịch sử của HS; KHÔNG tải toàn bộ ngân hàng câu hỏi.
+    Nếu lịch sử cũ thiếu chỉ báo, ưu tiên snapshot đã lưu; chỉ truy vấn đúng
+    các question_id còn thiếu từ questions_v2.
     """
-    lich_su = lay_lich_su_cua_hoc_sinh(
-        hoc_sinh_id
-    )
-
+    if lich_su is None:
+        lich_su = lay_lich_su_cua_hoc_sinh(hoc_sinh_id)
+    else:
+        lich_su = list(lich_su or [])
     stats = {}
     cau_da_gap = {}
     tong_don_vi = 0
     tong_dung = 0
 
-    # Dùng metadata hiện tại của ngân hàng để bù chỉ báo cho lịch sử cũ.
-    # Nhờ vậy các lượt HS đã làm trước đây cũng được thống kê theo NT/TH/VD.
-    try:
-        bank_hien_tai = gan_chi_bao_cho_ngan_hang_hien_co(doc_ngan_hang())
-    except Exception:
-        bank_hien_tai = doc_ngan_hang()
+    cau_theo_id = {}
+    can_bo_sung_ids = set()
 
-    cau_theo_id = {
-        str(q.get("id", "")): q
-        for q in bank_hien_tai
-        if str(q.get("id", "")).strip()
-    }
+    # Snapshot đã được lưu cùng lượt làm nên dùng trước — không cần đọc ngân hàng.
+    for lan in lich_su:
+        for item in lan.get("chi_tiet", []) or []:
+            cid = str(item.get("cau_id", "") or "").strip()
+            snap = item.get("cau_snapshot", {}) or {}
+            if cid and isinstance(snap, dict) and snap:
+                cau_theo_id[cid] = snap
+            if cid:
+                for unit in item.get("don_vi_danh_gia", []) or []:
+                    ma_cb = str((unit or {}).get("chi_bao", "") or "").strip().upper()
+                    if not re.fullmatch(r"(NT[1-8]|TH[1-7]|VD[1-3])", ma_cb):
+                        if not snap:
+                            can_bo_sung_ids.add(cid)
+
+    # Chỉ lấy đúng các câu thiếu snapshot/metadata, thường là rất ít câu lịch sử cũ.
+    if can_bo_sung_ids:
+        try:
+            for q in _fast_get_questions_v2_by_ids(sorted(can_bo_sung_ids)):
+                cid = str(q.get("id", "") or "").strip()
+                if cid:
+                    cau_theo_id[cid] = q
+        except Exception:
+            pass
 
     for lan in lich_su:
-        for item in lan.get(
-            "chi_tiet",
-            []
-        ) or []:
-
-            cau_id = str(
-                item.get("cau_id", "")
-            )
-
+        for item in lan.get("chi_tiet", []) or []:
+            cau_id = str(item.get("cau_id", "") or "")
             if cau_id:
                 info = cau_da_gap.setdefault(
-                    cau_id,
-                    {
-                        "so_lan": 0,
-                        "so_lan_dung": 0,
-                        "lan_cuoi": ""
-                    }
+                    cau_id, {"so_lan": 0, "so_lan_dung": 0, "lan_cuoi": ""}
                 )
                 info["so_lan"] += 1
                 if item.get("dung_toan_cau"):
                     info["so_lan_dung"] += 1
-                info["lan_cuoi"] = lan.get(
-                    "thoi_gian_iso",
-                    lan.get("thoi_gian", "")
-                )
+                info["lan_cuoi"] = lan.get("thoi_gian_iso", lan.get("thoi_gian", ""))
 
-            for unit in item.get(
-                "don_vi_danh_gia",
-                []
-            ) or []:
-                unit = dict(unit)
-                ma_cb = str(unit.get("chi_bao", "")).strip().upper()
-
-                # Lịch sử cũ có thể chưa lưu chỉ báo. Suy lại từ câu hiện tại.
+            for unit in item.get("don_vi_danh_gia", []) or []:
+                unit = dict(unit or {})
+                ma_cb = str(unit.get("chi_bao", "") or "").strip().upper()
                 if not re.fullmatch(r"(NT[1-8]|TH[1-7]|VD[1-3])", ma_cb):
                     q_ref = cau_theo_id.get(cau_id, {})
-                    q_ref = gan_chi_bao_chuan_cho_cau(q_ref) if q_ref else {}
-                    ma_cb = str(q_ref.get("chi_bao", "")).strip().upper()
-
+                    try:
+                        q_ref = gan_chi_bao_chuan_cho_cau(q_ref) if q_ref else {}
+                    except Exception:
+                        q_ref = q_ref or {}
+                    ma_cb = str(q_ref.get("chi_bao", "") or "").strip().upper()
                     if ma_cb:
                         unit["chi_bao"] = ma_cb
-                        unit["nang_luc"] = (
-                            nang_luc_theo_ma_chi_bao(ma_cb)
-                            or unit.get("nang_luc", "")
-                        )
+                        try:
+                            unit["nang_luc"] = nang_luc_theo_ma_chi_bao(ma_cb) or unit.get("nang_luc", "")
+                        except Exception:
+                            pass
 
                 key = khoa_nang_luc(
                     unit.get("yccd", ""),
@@ -24294,55 +24040,34 @@ def tao_ho_so_tu_lich_su(hoc_sinh_id):
                     unit.get("nang_luc", ""),
                     unit.get("chi_bao", "")
                 )
-
-                s = stats.setdefault(
-                    key,
-                    {
-                        "yccd": unit.get("yccd", ""),
-                        "muc_do": unit.get("muc_do", ""),
-                        "nang_luc": unit.get("nang_luc", ""),
-                        "chi_bao": unit.get("chi_bao", ""),
-                        "so_lan": 0,
-                        "so_dung": 0
-                    }
-                )
-
+                s = stats.setdefault(key, {
+                    "yccd": unit.get("yccd", ""),
+                    "muc_do": unit.get("muc_do", ""),
+                    "nang_luc": unit.get("nang_luc", ""),
+                    "chi_bao": unit.get("chi_bao", ""),
+                    "so_lan": 0,
+                    "so_dung": 0
+                })
                 s["so_lan"] += 1
                 tong_don_vi += 1
-
                 if unit.get("dung"):
                     s["so_dung"] += 1
                     tong_dung += 1
 
     for s in stats.values():
-        s["ti_le_dung"] = (
-            s["so_dung"] / s["so_lan"]
-            if s["so_lan"] > 0
-            else 0
-        )
-
-        # Bayesian smoothing nhẹ để tránh 1 câu sai = yếu tuyệt đối.
-        s["mastery"] = (
-            s["so_dung"] + 1
-        ) / (
-            s["so_lan"] + 2
-        )
+        s["ti_le_dung"] = s["so_dung"] / s["so_lan"] if s["so_lan"] > 0 else 0
+        s["mastery"] = (s["so_dung"] + 1) / (s["so_lan"] + 2)
 
     return {
-        "hoc_sinh_id": chuan_hoa_ma_hoc_sinh(
-            hoc_sinh_id
-        ),
+        "hoc_sinh_id": chuan_hoa_ma_hoc_sinh(hoc_sinh_id),
         "so_luot_lam": len(lich_su),
         "tong_don_vi": tong_don_vi,
         "tong_dung": tong_dung,
-        "ti_le_dung": (
-            tong_dung / tong_don_vi
-            if tong_don_vi > 0
-            else 0
-        ),
+        "ti_le_dung": tong_dung / tong_don_vi if tong_don_vi > 0 else 0,
         "stats": stats,
         "cau_da_gap": cau_da_gap
     }
+
 
 
 def mastery_cua_unit(profile, unit):
@@ -25591,6 +25316,7 @@ def _gia_tri_pham_vi_co_trong_bank(bank, field, khoi="", chuong=""):
     return sorted(values)
 
 
+@_safe_fragment
 def hoc_sinh():
 
     # Chữ khu vực học sinh: lớn hơn, thoáng hơn để dễ đọc trên màn hình lớp học.
@@ -25798,7 +25524,16 @@ def hoc_sinh():
         "hs_nop_bai_hien_thi": "",
         "hs_thoi_gian_quy_dinh_phut": 0,
         "hs_han_nop_epoch": None,
-        "hs_xem_lai_kiem_tra": False
+        "hs_xem_lai_kiem_tra": False,
+        # Stage 6.1: đăng nhập theo nút Submit, không query Supabase theo từng ký tự.
+        "hs_logged_in_id": "",
+        "hs_logged_in_info": None,
+        # Sau đăng nhập hiển thị trang chào nhanh; chỉ tải dữ liệu nặng khi HS bấm Vào học.
+        "hs_portal_open": False,
+        # Stage 9: VÀO HỌC chỉ mở menu chế độ; chưa tải ngân hàng/lịch sử.
+        "hs_portal_mode": "",
+        # Xếp hạng lớp là truy vấn phụ; chỉ tải khi HS chủ động xem.
+        "hs_show_rank": False,
     }
 
     for key, value in defaults.items():
@@ -25806,169 +25541,273 @@ def hoc_sinh():
             st.session_state[key] = value
 
     # ======================================================
-    # NHẬN DIỆN HỌC SINH
+    # CALLBACK ĐIỀU HƯỚNG HS — tránh st.rerun() lần 2
+    # ======================================================
+    def _hs_open_portal_cb():
+        st.session_state["hs_portal_open"] = True
+        st.session_state["hs_portal_mode"] = ""
+
+    def _hs_choose_mode_cb(label):
+        st.session_state["hs_portal_mode"] = label
+        st.session_state["hs_mode"] = label
+
+    def _hs_change_mode_cb():
+        st.session_state["hs_portal_mode"] = ""
+
+    # ======================================================
+    # NHẬN DIỆN HỌC SINH — STAGE 6.1 FAST LOGIN
     # ======================================================
     st.markdown(
         """
         <div class="hs-login-shell">
             <div class="hs-login-banner">
                 <div class="hs-login-title">🔐 ĐĂNG NHẬP HỌC SINH</div>
-                <div class="hs-login-note">Nhập mã học sinh do giáo viên cấp để vào đúng hồ sơ học tập, bài luyện và tiến độ của em.</div>
+                <div class="hs-login-note">Nhập mã học sinh rồi bấm Đăng nhập. Hệ thống chỉ tra cứu một lần, không gọi Supabase theo từng ký tự.</div>
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    _, col_hs_login, _ = st.columns([1, 2.4, 1])
-    with col_hs_login:
-        hs_id = st.text_input(
-            "Mã học sinh",
-            value=st.session_state.get(
-                "hs_id",
-                ""
-            ),
-            placeholder="VD: 12A2-001",
-            key="hs_id"
-        )
+    hs_info = st.session_state.get("hs_logged_in_info")
+    hs_logged_id = str(st.session_state.get("hs_logged_in_id", "") or "").strip().upper()
 
-    if not str(
-        hs_id
-    ).strip():
-        st.info(
-            "Nhập mã học sinh do giáo viên cấp."
-        )
-        return
+    if not isinstance(hs_info, dict) or not hs_logged_id:
+        _, col_hs_login, _ = st.columns([1, 2.4, 1])
+        with col_hs_login:
+            with st.form("hs_login_form", clear_on_submit=False):
+                hs_input = st.text_input(
+                    "Mã học sinh",
+                    value=str(st.session_state.get("hs_id", "") or ""),
+                    placeholder="VD: 12A2-001",
+                    key="hs_login_input"
+                )
+                submitted_login = st.form_submit_button(
+                    "⚡ ĐĂNG NHẬP",
+                    type="primary",
+                    use_container_width=True,
+                )
 
-    hs_info = tim_hoc_sinh_theo_ma(
-        hs_id
-    )
+        if not submitted_login:
+            st.info("Nhập mã học sinh rồi bấm **ĐĂNG NHẬP**.")
+            return
 
-    if not hs_info:
-        st.error(
-            "Không tìm thấy mã học sinh này. "
-            "Hãy kiểm tra lại hoặc liên hệ giáo viên."
-        )
-        return
+        hs_id_nhap = str(hs_input or "").strip().upper()
+        if not hs_id_nhap:
+            st.warning("Chưa nhập mã học sinh.")
+            return
 
-    if hs_info.get(
-        "trang_thai"
-    ) == "Tạm khóa":
-        st.warning(
-            "Tài khoản học sinh này đang tạm khóa."
-        )
-        return
+        with st.spinner("Đang xác nhận tài khoản..."):
+            hs_info = tim_hoc_sinh_theo_ma(hs_id_nhap)
 
-    hs_id_chuan = str(
-        hs_info.get(
-            "ma_hoc_sinh",
-            ""
-        )
-    ).strip().upper()
+        if not hs_info:
+            st.error(
+                "Không tìm thấy mã học sinh này. "
+                "Hãy kiểm tra lại hoặc liên hệ giáo viên."
+            )
+            return
 
-    hs_ten = str(
-        hs_info.get(
-            "ho_ten",
-            ""
-        )
-    ).strip()
+        if hs_info.get("trang_thai") == "Tạm khóa":
+            st.warning("Tài khoản học sinh này đang tạm khóa.")
+            return
 
-    hs_lop = str(
-        hs_info.get(
-            "lop",
-            ""
-        )
-    ).strip()
+        hs_id_chuan = str(hs_info.get("ma_hoc_sinh", hs_id_nhap) or hs_id_nhap).strip().upper()
+        st.session_state["hs_id"] = hs_id_chuan
+        st.session_state["hs_logged_in_id"] = hs_id_chuan
+        st.session_state["hs_logged_in_info"] = dict(hs_info)
+        st.session_state["hs_portal_open"] = False
+        st.session_state["hs_portal_mode"] = ""
+        st.rerun()
 
-    hs_khoi_ds = str(
-        hs_info.get(
-            "khoi",
-            ""
-        )
-    ).strip()
+    # Từ đây dùng hồ sơ đã giữ trong session — không query lại khi HS bấm widget.
+    hs_info = dict(st.session_state.get("hs_logged_in_info") or {})
+    hs_id_chuan = str(st.session_state.get("hs_logged_in_id", "") or "").strip().upper()
 
-    st.success(
-        f"👋 Xin chào **{hs_ten}**"
-    )
+    if not hs_info or not hs_id_chuan:
+        st.session_state["hs_logged_in_info"] = None
+        st.session_state["hs_logged_in_id"] = ""
+        st.rerun()
+
+    hs_ten = str(hs_info.get("ho_ten", "") or "").strip()
+    hs_lop = str(hs_info.get("lop", "") or "").strip()
+    hs_khoi_ds = str(hs_info.get("khoi", "") or "").strip()
+
+    st.success(f"👋 Xin chào **{hs_ten}**")
 
     info1, info2, info3 = st.columns(3)
-
     with info1:
-        st.write(
-            f"**Lớp:** {hs_lop or 'Chưa xác định'}"
-        )
-
+        st.write(f"**Lớp:** {hs_lop or 'Chưa xác định'}")
     with info2:
-        st.write(
-            f"**Khối:** {hs_khoi_ds or 'Chưa xác định'}"
-        )
-
+        st.write(f"**Khối:** {hs_khoi_ds or 'Chưa xác định'}")
     with info3:
-        st.write(
-            f"**Mã học sinh:** {hs_id_chuan}"
-        )
+        st.write(f"**Mã học sinh:** {hs_id_chuan}")
 
-    profile = tao_ho_so_tu_lich_su(
-        hs_id_chuan
-    )
+    c_enter, c_logout = st.columns([3, 1])
+    with c_logout:
+        if st.button("↩️ Đổi tài khoản", use_container_width=True, key="hs_logout_fast"):
+            reset_bai_hs()
+            st.session_state["hs_logged_in_info"] = None
+            st.session_state["hs_logged_in_id"] = ""
+            st.session_state["hs_portal_open"] = False
+            st.session_state["hs_portal_mode"] = ""
+            st.session_state["hs_id"] = ""
+            st.session_state.pop("hs_login_input", None)
+            st.session_state.pop("_hs_profile_cache", None)
+            st.session_state.pop("_hs_profile_cache_key", None)
+            st.session_state.pop("_hs_history_cache", None)
+            st.session_state["hs_show_rank"] = False
+            for _k in list(st.session_state.keys()):
+                if str(_k).startswith("_hs_bank_session_"):
+                    st.session_state.pop(_k, None)
+            st.rerun()
 
-    # Hồ sơ cá nhân hóa vẫn được tính và lưu ngầm để chọn câu phù hợp.
-    # Không hiển thị bảng YCCĐ/mức độ/năng lực cho học sinh ở màn hình chính.
-
-    # ======================================================
-    # NGÂN HÀNG
-    # ======================================================
-    # Ngân hàng dùng cho học sinh là NGÂN HÀNG CHUNG:
-    # gồm câu ôn tập/kiểm tra và câu được xây dựng cho tốt nghiệp THPT.
-    # Mặc định mọi câu đã duyệt đều được dùng luyện HS, trừ khi GV tắt cờ này.
-    bank = [
-        q
-        for q in (doc_ngan_hang() + doc_ngan_hang_tot_nghiep_thuc_te())
-        if (
-            q.get(
-                "trang_thai",
-                "Đã duyệt"
-            ) not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
-            and q.get(
-                "duoc_dung_luyen_hs",
-                True
+    # Tách đăng nhập khỏi các truy vấn nặng (lịch sử, ngân hàng, xếp hạng).
+    # Nhờ vậy thao tác đăng nhập chỉ còn 1 SELECT hồ sơ học sinh.
+    if not st.session_state.get("hs_portal_open", False):
+        with c_enter:
+            st.button(
+                "🚀 VÀO HỌC",
+                type="primary",
+                use_container_width=True,
+                key="hs_open_portal_fast",
+                on_click=_hs_open_portal_cb,
             )
-        )
-    ]
-
-    if not bank:
-        st.warning(
-            "Ngân hàng chưa có câu đã duyệt."
-        )
+        st.caption("⚡ Đăng nhập đã hoàn tất. Dữ liệu học tập chỉ được tải khi em bấm **VÀO HỌC**.")
         return
 
-    # Xếp hạng cá nhân chỉ hiện ở màn hình đầu; HS không xem danh sách bạn khác.
-    if (
-        not st.session_state.hs_dang_lam
-        and not st.session_state.hs_da_nop
-    ):
-        hien_thi_xep_hang_ca_nhan_hs(
-            hs_id_chuan,
-            hs_lop
-        )
-
     # ======================================================
-    # DASHBOARD CÁ NHÂN - CHỈ HIỆN Ở MÀN HÌNH ĐẦU
+    # STAGE 9 — VÀO HỌC TỨC THÌ: CHỈ CHỌN CHẾ ĐỘ, CHƯA TẢI DỮ LIỆU NẶNG
     # ======================================================
-    hs_goi_y_hom_nay = goi_y_hoc_tap_hom_nay(
-        profile,
-        bank,
-        3
-    )
+    if not st.session_state.hs_dang_lam:
+        mode_options_fast = [
+            "🎯 Luyện theo gợi ý hôm nay",
+            "📖 Ôn theo bài",
+            "📚 Ôn theo chương",
+            "📝 Đề GV / ma trận",
+            "🧪 Kiểm tra theo ma trận GV",
+            "🎓 Luyện tốt nghiệp THPT",
+            "📈 Lịch sử & tiến bộ",
+        ]
+        mode_now_fast = str(st.session_state.get("hs_portal_mode", "") or "")
+        if mode_now_fast not in mode_options_fast:
+            st.markdown("---")
+            st.subheader("🎯 Chọn cách học")
+            st.caption("Màn hình này mở ngay, chưa tải ngân hàng câu hỏi hay lịch sử học tập.")
+            cols_mode = st.columns(2)
+            for i_mode, label_mode in enumerate(mode_options_fast):
+                with cols_mode[i_mode % 2]:
+                    st.button(
+                        label_mode,
+                        use_container_width=True,
+                        key=f"hs_mode_launch_{i_mode}",
+                        on_click=_hs_choose_mode_cb,
+                        args=(label_mode,),
+                    )
+            return
 
-    if (
-        not st.session_state.hs_dang_lam
-        and not st.session_state.hs_da_nop
-    ):
-        hs_goi_y_hom_nay = hien_thi_ke_hoach_hom_nay(
-            profile,
-            bank
-        )
+        che_do = mode_now_fast
+        c_mode_title, c_mode_back = st.columns([4, 1])
+        with c_mode_title:
+            st.subheader(che_do)
+        with c_mode_back:
+            st.button(
+                "↩️ Đổi cách luyện",
+                use_container_width=True,
+                key="hs_change_mode_fast",
+                on_click=_hs_change_mode_cb,
+            )
+    else:
+        che_do = str(st.session_state.get("hs_che_do_hien_tai", "") or "")
+
+    # Chỉ tải đúng dữ liệu mà CHẾ ĐỘ hiện tại cần.
+    # Khi đã bắt đầu làm/xem lại bài, đề đã nằm trong session_state nên tuyệt đối
+    # không gọi Supabase/ngân hàng lại theo mỗi lần chọn đáp án.
+    profile = st.session_state.get("_hs_profile_cache") or {}
+    bank_on_tap_hs_fast = []
+    bank_tot_nghiep_hs_fast = []
+    bank = []
+    hs_goi_y_hom_nay = []
+
+    if not st.session_state.hs_dang_lam:
+        _hs_load_t0 = time.perf_counter()
+        hs_khoi_query = _chuan_khoi_hs_fast(hs_khoi_ds, hs_lop)
+
+        # Mỗi chế độ chỉ lấy đúng dữ liệu cần thiết.
+        can_profile_ngay = che_do in {
+            "🎯 Luyện theo gợi ý hôm nay",
+            CHE_DO_DE_GV,
+            "📈 Lịch sử & tiến bộ",
+        }
+        can_bank_day_du = che_do in {
+            "🎯 Luyện theo gợi ý hôm nay",
+            CHE_DO_DE_GV,
+            CHE_DO_KIEM_TRA_MA_TRAN,
+        }
+        can_chi_muc = che_do in {"📖 Ôn theo bài", "📚 Ôn theo chương"}
+        can_tot_nghiep = che_do == CHE_DO_TOT_NGHIEP
+
+        if can_profile_ngay:
+            profile_cache_key = str(st.session_state.get("_hs_profile_cache_key", "") or "")
+            if profile_cache_key != hs_id_chuan or not isinstance(
+                st.session_state.get("_hs_profile_cache"), dict
+            ):
+                lich_su_fast = lay_lich_su_cua_hoc_sinh(hs_id_chuan)
+                profile = tao_ho_so_tu_lich_su(hs_id_chuan, lich_su=lich_su_fast)
+                st.session_state["_hs_profile_cache_key"] = hs_id_chuan
+                st.session_state["_hs_profile_cache"] = profile
+                st.session_state["_hs_history_cache"] = lich_su_fast
+            else:
+                profile = st.session_state.get("_hs_profile_cache") or {}
+
+        if can_chi_muc:
+            # STAGE 10: menu lấy từ KHO_YCCD local — 0 truy vấn Supabase.
+            bank = doc_chi_muc_ngan_hang_hs_fast(hs_khoi_query)
+            st.caption("⚡ Màn hình chọn Bài/Chương mở từ dữ liệu YCCĐ cục bộ; **chưa tải câu hỏi**.")
+
+        elif can_bank_day_du:
+            bank_on_tap_hs_fast = doc_ngan_hang_hs_fast(hs_khoi_query)
+            bank = [
+                q for q in bank_on_tap_hs_fast
+                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+                and q.get("duoc_dung_luyen_hs", True)
+            ]
+
+        elif can_tot_nghiep:
+            # Tốt nghiệp chỉ tải dữ liệu khi HS thật sự chọn chế độ này.
+            if _chuan_khoi_hs_fast(hs_khoi_query) == "Khối 12":
+                bank_tot_nghiep_hs_fast = doc_ngan_hang_tot_nghiep_thuc_te()
+                # NH ôn tập chỉ là nguồn bổ sung, tải sau khi đã chọn chế độ TN.
+                bank_on_tap_hs_fast = doc_ngan_hang_hs_fast(hs_khoi_query)
+            bank = [
+                q for q in (bank_on_tap_hs_fast + bank_tot_nghiep_hs_fast)
+                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+                and q.get("duoc_dung_luyen_hs", True)
+            ]
+
+        # Lịch sử không cần tải ngân hàng. Ôn bài/chương chưa cần tải lịch sử.
+        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du or can_tot_nghiep):
+            st.warning("Ngân hàng chưa có câu đã duyệt phù hợp với khối của em.")
+            return
+
+        # Xếp hạng chỉ tải khi HS chủ động yêu cầu và không làm chậm menu VÀO HỌC.
+        if not st.session_state.hs_da_nop and che_do != "📈 Lịch sử & tiến bộ":
+            if st.session_state.get("hs_show_rank", False):
+                hien_thi_xep_hang_ca_nhan_hs(hs_id_chuan, hs_lop)
+            else:
+                if st.button(
+                    "🏆 Xem xếp hạng của em",
+                    use_container_width=False,
+                    key="hs_show_rank_btn_fast",
+                ):
+                    st.session_state["hs_show_rank"] = True
+                    st.rerun()
+
+        # Gợi ý chỉ tính đúng MỘT lần; hàm hiển thị trả luôn danh sách ưu tiên.
+        if che_do == "🎯 Luyện theo gợi ý hôm nay":
+            hs_goi_y_hom_nay = hien_thi_ke_hoach_hom_nay(profile, bank)
+
+        if _perf_debug_enabled():
+            st.caption(f"PERF HS tải dữ liệu chế độ {che_do}: {time.perf_counter() - _hs_load_t0:.3f}s")
 
     # ======================================================
     # CHỌN CHẾ ĐỘ LUYỆN
@@ -25976,28 +25815,9 @@ def hoc_sinh():
     if not st.session_state.hs_dang_lam:
 
         st.markdown("---")
-        st.subheader(
-            "🎯 Chọn cách luyện"
-        )
-
         st.caption(
             "Ôn theo bài/chương được cá nhân hóa mạnh. "
             "Ôn theo ma trận và tốt nghiệp vẫn giữ nguyên form đề."
-        )
-
-        che_do = st.radio(
-            "Hình thức luyện",
-            [
-                "🎯 Luyện theo gợi ý hôm nay",
-                "📖 Ôn theo bài",
-                "📚 Ôn theo chương",
-                "📝 Đề GV / ma trận",
-                "🧪 Kiểm tra theo ma trận GV",
-                "🎓 Luyện tốt nghiệp THPT",
-                "📈 Lịch sử & tiến bộ"
-            ],
-            horizontal=True,
-            key="hs_mode"
         )
 
         ds_khoi = _gia_tri_pham_vi_co_trong_bank(
@@ -26010,6 +25830,8 @@ def hoc_sinh():
         so_cau = 10
         dang_counts = None
         ten_luot = che_do
+        # Ôn bài/chương: không tải câu hỏi cho đến khi bấm BẮT ĐẦU.
+        defer_scope_load = False
 
         # --------------------------------------------------
         # LUYỆN THEO GỢI Ý HÔM NAY
@@ -26165,17 +25987,8 @@ def hoc_sinh():
                     key="hs_scope_lesson"
                 )
 
-                pool = [
-                    q
-                    for q in bank_chuong
-                    if _cau_thuoc_pham_vi_luyen_hs(
-                        q,
-                        khoi=khoi,
-                        chuong=chuong,
-                        bai=bai
-                    )
-                ]
-
+                # STAGE 10: chỉ ghi phạm vi; chưa tải JSON câu hỏi.
+                defer_scope_load = True
                 pham_vi = {
                     "khoi": khoi,
                     "chuong": chuong,
@@ -26188,8 +26001,8 @@ def hoc_sinh():
                 )
 
             else:
-                pool = bank_chuong
-
+                # STAGE 10: chỉ ghi phạm vi; chưa tải JSON câu hỏi.
+                defer_scope_load = True
                 pham_vi = {
                     "khoi": khoi,
                     "chuong": chuong
@@ -26200,53 +26013,16 @@ def hoc_sinh():
                     + chuong
                 )
 
-            if pool:
+            if defer_scope_load:
                 so_cau = st.select_slider(
                     "Số câu mỗi lượt",
-                    options=[
-                        x
-                        for x in [
-                            10,
-                            20,
-                            30
-                        ]
-                        if x <= len(pool)
-                    ]
-                    or [
-                        min(
-                            10,
-                            len(pool)
-                        )
-                    ],
-                    value=(
-                        10
-                        if len(pool) >= 10
-                        else min(
-                            10,
-                            len(pool)
-                        )
-                    ),
+                    options=[10, 20, 30],
+                    value=10,
                     key="hs_scope_n"
                 )
-
-                dang_counts = phan_bo_3_dang_tu_dong(
-                    int(
-                        so_cau
-                    ),
-                    pool
-                )
-
                 st.info(
-                    "App tự phối hợp 3 dạng câu theo ngân hàng hiện có. "
-                    "Mỗi lượt ưu tiên câu chưa làm và các YCCĐ/mức độ học sinh đang yếu."
-                )
-
-                st.write(
-                    "**Cơ cấu lượt này:** "
-                    + " • ".join(
-                        f"{dang}: {n}"
-                        for dang, n in dang_counts.items()
-                    )
+                    "⚡ Chọn phạm vi không tải ngân hàng. Câu hỏi chỉ được lấy khi em bấm "
+                    "**BẮT ĐẦU LƯỢT LUYỆN**."
                 )
 
         # --------------------------------------------------
@@ -26657,9 +26433,10 @@ def hoc_sinh():
         elif che_do == "📈 Lịch sử & tiến bộ":
             pool = []
 
-            lich_su_hs = lay_lich_su_cua_hoc_sinh(
-                hs_id_chuan
-            )
+            lich_su_hs = st.session_state.get("_hs_history_cache")
+            if not isinstance(lich_su_hs, list):
+                lich_su_hs = lay_lich_su_cua_hoc_sinh(hs_id_chuan)
+                st.session_state["_hs_history_cache"] = lich_su_hs
 
             st.subheader(
                 "📈 Tiến bộ của em"
@@ -26782,11 +26559,11 @@ def hoc_sinh():
         # --------------------------------------------------
         else:
             pool12 = [
-                q for q in doc_ngan_hang_tot_nghiep_thuc_te()
+                q for q in bank_tot_nghiep_hs_fast
                 if cau_tot_nghiep_du_dieu_kien_su_dung(q)
             ]
             pool_on_tap_12 = [
-                q for q in doc_ngan_hang()
+                q for q in bank_on_tap_hs_fast
                 if cau_on_tap_bo_sung_du_dieu_kien_tot_nghiep(q)
             ]
 
@@ -26824,10 +26601,11 @@ def hoc_sinh():
                 "Không lặp câu trong cùng mã đề và vẫn giữ nguyên ảnh/bảng của câu gốc."
             )
 
-        if pool:
-            st.caption(
-                f"Ngân hàng phù hợp: {len(pool)} câu."
-            )
+        if pool or defer_scope_load:
+            if pool:
+                st.caption(f"Ngân hàng phù hợp: {len(pool)} câu.")
+            else:
+                st.caption("⚡ Chưa tải nội dung câu hỏi — tải đúng phạm vi khi bắt đầu.")
 
             nut_bat_dau_label = (
                 "🧪 BẮT ĐẦU KIỂM TRA"
@@ -26840,6 +26618,20 @@ def hoc_sinh():
                 type="primary",
                 use_container_width=True
             ):
+
+                # STAGE 10: Ôn bài/chương chỉ bây giờ mới chạm Supabase.
+                if defer_scope_load:
+                    with st.spinner("Đang lấy đúng câu hỏi của phạm vi đã chọn..."):
+                        pool = doc_pool_hs_theo_pham_vi(
+                            khoi=(pham_vi or {}).get("khoi", ""),
+                            chuong=(pham_vi or {}).get("chuong", ""),
+                            bai=(pham_vi or {}).get("bai", ""),
+                        )
+                    if not pool:
+                        st.warning("Phạm vi này hiện chưa có câu hỏi đã duyệt để luyện.")
+                        return
+                    so_cau = min(int(so_cau), len(pool))
+                    dang_counts = phan_bo_3_dang_tu_dong(int(so_cau), pool)
 
                 # Kiểm tra chính thức: chặn lại ở phía máy chủ trước khi mở đề.
                 if che_do == CHE_DO_KIEM_TRA_MA_TRAN:
@@ -26901,6 +26693,17 @@ def hoc_sinh():
                     )
 
                 else:
+                    # Ôn theo bài/chương chỉ đến lúc BẮT ĐẦU mới tải lịch sử cá nhân.
+                    # Nhờ vậy chọn Chương/Bài không bị chờ truy vấn lịch sử.
+                    if not isinstance(profile, dict) or not profile.get("hoc_sinh_id"):
+                        lich_su_fast = st.session_state.get("_hs_history_cache")
+                        if not isinstance(lich_su_fast, list):
+                            lich_su_fast = lay_lich_su_cua_hoc_sinh(hs_id_chuan)
+                            st.session_state["_hs_history_cache"] = lich_su_fast
+                        profile = tao_ho_so_tu_lich_su(hs_id_chuan, lich_su=lich_su_fast)
+                        st.session_state["_hs_profile_cache_key"] = hs_id_chuan
+                        st.session_state["_hs_profile_cache"] = profile
+
                     # Ôn theo bài/chương: cá nhân hóa mạnh theo điểm yếu,
                     # câu từng sai và câu chưa gặp.
                     de_thi = rut_cau_ca_nhan_hoa(
@@ -27577,6 +27380,8 @@ def hoc_sinh():
             ),
             "hoc_sinh_id": hs_id_chuan,
             "ho_ten": hs_ten,
+            "lop": hs_lop,
+            "khoi": hs_khoi_ds,
             "bat_dau_luc": st.session_state.get("hs_bat_dau_hien_thi", ""),
             "bat_dau_iso": st.session_state.get("hs_bat_dau_iso", ""),
             "nop_bai_luc": st.session_state.get("hs_nop_bai_hien_thi", ""),
@@ -27644,18 +27449,29 @@ def hoc_sinh():
             if existing_kiem_tra:
                 ban_ghi = existing_kiem_tra
             else:
-                ds_ls = doc_lich_su_hoc_sinh()
-                ds_ls.append(
-                    ban_ghi
-                )
-                luu_lich_su_hoc_sinh(
-                    ds_ls
-                )
+                kq_luu_fast = them_luot_lam_hoc_sinh(ban_ghi)
+                if not bool((kq_luu_fast or {}).get("ok")):
+                    st.error(
+                        "⚠️ Chưa ghi được kết quả lên kho dữ liệu chính. "
+                        "Bài làm vẫn đang giữ trong phiên hiện tại; hãy thử lưu lại hoặc báo giáo viên."
+                    )
+                    if (kq_luu_fast or {}).get("error"):
+                        st.caption(str((kq_luu_fast or {}).get("error")))
+                else:
+                    st.session_state.hs_ban_ghi_hien_tai = ban_ghi
+                    st.session_state.hs_da_luu_ket_qua = True
+                    # Có lượt mới: chỉ làm mới cache liên quan đến chính HS/xếp hạng.
+                    st.session_state.pop("_hs_profile_cache", None)
+                    st.session_state.pop("_hs_profile_cache_key", None)
+                    st.session_state.pop("_hs_history_cache", None)
+                    try:
+                        tinh_bang_xep_hang_lop.clear()
+                    except Exception:
+                        pass
 
-            st.session_state.hs_ban_ghi_hien_tai = (
-                ban_ghi
-            )
-            st.session_state.hs_da_luu_ket_qua = True
+            if existing_kiem_tra:
+                st.session_state.hs_ban_ghi_hien_tai = ban_ghi
+                st.session_state.hs_da_luu_ket_qua = True
 
         else:
             ban_ghi = (
