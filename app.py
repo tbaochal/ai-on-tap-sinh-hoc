@@ -64,7 +64,6 @@ os.makedirs(SEED_SOURCE_DIR, exist_ok=True)
 os.makedirs(GV_AVATAR_DIR, exist_ok=True)
 
 MODEL_AI = "gemini-3.6-flash"
-APP_BUILD = "V5 – đa file + liên kết nguồn tự động"
 
 # Chế độ triển khai:
 # - full: trang chủ cho chọn GV/HS (dùng khi chạy nội bộ)
@@ -19050,146 +19049,6 @@ def _seed_bo_sung_main_tu_nguon(old, new):
     return changed
 
 
-
-def _seed_tao_index_main_nhanh(bank):
-    """Tạo index một lần để đồng bộ nhiều file không phải quét toàn bộ NH cho từng câu."""
-    by_seed = {}
-    by_source = {}
-    by_content = {}
-    by_stem = {}
-    for old in bank or []:
-        for sid in _main_cac_seed_id_hat_giong(old):
-            if sid:
-                by_seed[sid] = old
-        src = str(old.get("nguon_file", old.get("nguon", "")) or "").strip().casefold()
-        num = str(old.get("so_cau_goc", "") or "").strip()
-        dang = str(old.get("dang_cau", "") or "").strip()
-        if src and num and dang:
-            by_source.setdefault((src, num, dang), old)
-        key = _seed_noi_dung_bank_key(old)
-        if key:
-            by_content.setdefault(key, old)
-        stem = chuan_hoa_noi_dung_trung(str(old.get("cau_hoi", "") or old.get("tinh_huong", "")))
-        if stem and dang:
-            by_stem.setdefault((dang, stem), []).append(old)
-    return {
-        "by_seed": by_seed,
-        "by_source": by_source,
-        "by_content": by_content,
-        "by_stem": by_stem,
-    }
-
-
-def _seed_tim_trung_chinh_xac_index(q, index_main):
-    src = str(q.get("nguon_file", q.get("nguon", "")) or "").strip().casefold()
-    num = str(q.get("so_cau_goc", "") or "").strip()
-    dang = str(q.get("dang_cau", "") or "").strip()
-    if src and num and dang:
-        old = index_main["by_source"].get((src, num, dang))
-        if old is not None:
-            return old
-
-    key = _seed_noi_dung_bank_key(q)
-    if key:
-        old = index_main["by_content"].get(key)
-        if old is not None:
-            return old
-
-    stem = chuan_hoa_noi_dung_trung(str(q.get("cau_hoi", "") or q.get("tinh_huong", "")))
-    if stem and dang:
-        for old in index_main["by_stem"].get((dang, stem), []):
-            old_incomplete = (
-                (dang == "Trắc nghiệm 4 lựa chọn" and not list(old.get("lua_chon", []) or []))
-                or (dang == "Đúng / Sai" and not list(old.get("nhan_dinh_meta", []) or []))
-            )
-            if old_incomplete:
-                return old
-    return None
-
-
-def _seed_them_vao_index_main(q, index_main):
-    for sid in _main_cac_seed_id_hat_giong(q):
-        if sid:
-            index_main["by_seed"][sid] = q
-    src = str(q.get("nguon_file", q.get("nguon", "")) or "").strip().casefold()
-    num = str(q.get("so_cau_goc", "") or "").strip()
-    dang = str(q.get("dang_cau", "") or "").strip()
-    if src and num and dang:
-        index_main["by_source"][(src, num, dang)] = q
-    key = _seed_noi_dung_bank_key(q)
-    if key:
-        index_main["by_content"][key] = q
-    stem = chuan_hoa_noi_dung_trung(str(q.get("cau_hoi", "") or q.get("tinh_huong", "")))
-    if stem and dang:
-        lst = index_main["by_stem"].setdefault((dang, stem), [])
-        if q not in lst:
-            lst.append(q)
-
-
-def _seed_dong_bo_ids_vao_bo_nho(seed_bank, bank, seed_ids, index_main=None):
-    """Đồng bộ một nhóm seed vào bank trong RAM, KHÔNG ghi cloud ở giữa batch nhiều file."""
-    ids = {str(x or "").strip() for x in (seed_ids or []) if str(x or "").strip()}
-    if not ids:
-        return 0, 0, index_main or _seed_tao_index_main_nhanh(bank)
-
-    index_main = index_main or _seed_tao_index_main_nhanh(bank)
-    them = 0
-    bo_qua = 0
-
-    for seed in seed_bank or []:
-        sid = str(seed.get("id", "") or "").strip()
-        if sid not in ids:
-            continue
-
-        old_seed_main = index_main["by_seed"].get(sid) if sid else None
-        if old_seed_main is not None:
-            q_cap_nhat = _seed_chuyen_thanh_cau_ngan_hang(seed)
-            if q_cap_nhat is not None:
-                _seed_bo_sung_main_tu_nguon(old_seed_main, q_cap_nhat)
-                _seed_them_vao_index_main(old_seed_main, index_main)
-            seed["da_chuyen_sang_ngan_hang"] = True
-            seed["trang_thai_dong_bo"] = "Đã có trong ngân hàng chính"
-            bo_qua += 1
-            continue
-
-        ok, ly_do = _seed_du_dieu_kien_dong_bo(seed)
-        if not ok:
-            seed["trang_thai_dong_bo"] = ly_do
-            bo_qua += 1
-            continue
-
-        q = _seed_chuyen_thanh_cau_ngan_hang(seed)
-        if not q or not str(q.get("cau_hoi", "") or "").strip():
-            seed["trang_thai_dong_bo"] = "Không chuyển được cấu trúc câu"
-            bo_qua += 1
-            continue
-
-        old_exact = _seed_tim_trung_chinh_xac_index(q, index_main)
-        if old_exact is not None:
-            _seed_bo_sung_main_tu_nguon(old_exact, q)
-            seed["da_chuyen_sang_ngan_hang"] = True
-            seed["trang_thai_dong_bo"] = "Đã có trong ngân hàng chính"
-            seed["id_cau_trung_ngan_hang"] = str(old_exact.get("id", ""))
-            if sid:
-                index_main["by_seed"][sid] = old_exact
-            _seed_them_vao_index_main(old_exact, index_main)
-            bo_qua += 1
-            continue
-
-        q["nguon_tao"] = "Hạt giống đã chuẩn hóa trước khi nhập"
-        q["trang_thai"] = "Đã duyệt từ nguồn chuẩn hóa"
-        bank.append(q)
-        _seed_them_vao_index_main(q, index_main)
-        if sid:
-            index_main["by_seed"][sid] = q
-        seed["da_chuyen_sang_ngan_hang"] = True
-        seed["trang_thai_dong_bo"] = "Đã chuyển"
-        seed["ngay_chuyen_sang_ngan_hang"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-        them += 1
-
-    return them, bo_qua, index_main
-
-
 def dong_bo_hat_giong_an_toan_sang_ngan_hang(
     seed_bank=None,
     chi_seed_ids=None,
@@ -20308,19 +20167,6 @@ def _sao_luu_ngan_hang_chinh_truoc_khi_don(bank, ly_do="don_hat_giong"):
 
 def ngan_hang_hat_giong():
     st.header("🌱 NGÂN HÀNG HẠT GIỐNG")
-    st.caption(f"🧩 Phiên bản đang chạy: **{APP_BUILD}**")
-
-    # Sau khi nhập xong app tự rerun để sidebar đọc lại số câu mới.
-    # Giữ thông báo kết quả qua một lần rerun để GV vẫn nhìn thấy báo cáo.
-    _flash = st.session_state.pop("_seed_import_flash_v5", None)
-    if isinstance(_flash, dict):
-        st.success(str(_flash.get("message", "Đã nhập và đồng bộ hạt giống.")))
-        cfa, cfb = st.columns(2)
-        cfa.metric("🌱 Hạt giống sau nhập", int(_flash.get("seed_count", 0) or 0))
-        cfb.metric("🏦 Ngân hàng chung sau đồng bộ", int(_flash.get("bank_count", 0) or 0))
-        _bc = _flash.get("bao_cao") or []
-        if _bc:
-            st.dataframe(pd.DataFrame(_bc), use_container_width=True, hide_index=True)
     st.caption(
         "Kho nguồn đã được GV chuẩn hóa trước khi tải lên. App KHÔNG gọi AI để kiểm tra lại đáp án khi nhập; "
         "chỉ đọc metadata, chống trùng cục bộ và đồng bộ câu đủ YCCĐ + đáp án vào ngân hàng chính."
@@ -20366,6 +20212,7 @@ def ngan_hang_hat_giong():
         if not files:
             st.warning("Hãy chọn ít nhất một file.")
         else:
+            # Hiển thị tiến độ để không còn cảm giác app bị treo.
             progress = st.progress(0)
             status_box = st.empty()
             status_box.info("1/4 Đang đọc dữ liệu hiện có...")
@@ -20373,259 +20220,184 @@ def ngan_hang_hat_giong():
             bank_seed = doc_ngan_hang_hat_giong()
             bank_main = doc_ngan_hang()
 
-            # Index hạt giống + NH chính đúng một lần cho toàn batch nhiều file.
+            # Index một lần. Bản cũ mỗi câu mới lại quét + băm toàn bộ kho hạt giống,
+            # làm thời gian tăng theo O(số câu mới × số câu cũ).
             seed_by_fp = {}
             for _old_seed in bank_seed:
                 _fp = _seed_fingerprint_noi_dung(_old_seed)
                 if _fp and _fp not in seed_by_fp:
                     seed_by_fp[_fp] = _old_seed
-            index_main = _seed_tao_index_main_nhanh(bank_main)
+            fp_old = set(seed_by_fp)
 
             them = trung_seed = trung_main = 0
-            da_chuyen_tong = bo_qua_sync_tong = 0
+            # Chỉ các câu thuộc file vừa nhập/cập nhật mới được đồng bộ ở lượt này.
+            # Không quét lại toàn bộ kho cũ để tránh số "đồng bộ mới" tăng bất thường.
+            seed_ids_can_sync = set()
             bao_cao = []
             tong_file_nhap = max(1, len(files))
-            file_ok = 0
-            file_loi = 0
-
             for idx_file_nhap, f in enumerate(files, start=1):
-                ten_file = str(getattr(f, "name", "") or f"file_{idx_file_nhap}")
-                status_box.info(
-                    f"2/4 Đang xử lý file {idx_file_nhap}/{tong_file_nhap}: {ten_file}"
+                status_box.info(f"2/4 Đang tách file {idx_file_nhap}/{tong_file_nhap}: {f.name}")
+                progress.progress(min(50, 10 + int(40 * idx_file_nhap / tong_file_nhap)))
+                goi_nguon = doc_goi_tu_file_hat_giong(f)
+                txt = goi_nguon.get("text", "")
+                ds_tach = tach_cau_hoi_hat_giong(
+                    txt,
+                    f.name,
+                    resources_map=goi_nguon.get("resources", {}),
+                    source_path=goi_nguon.get("source_path", ""),
+                    media_dir=goi_nguon.get("media_dir", "")
                 )
-                progress.progress(min(72, 8 + int(64 * idx_file_nhap / tong_file_nhap)))
+                them_file = trung_seed_file = trung_main_file = thieu_yccd_file = thieu_dap_an_file = nghi_trung_file = 0
 
-                try:
-                    goi_nguon = doc_goi_tu_file_hat_giong(f)
-                    txt = goi_nguon.get("text", "")
-                    ds_tach = tach_cau_hoi_hat_giong(
-                        txt,
-                        ten_file,
-                        resources_map=goi_nguon.get("resources", {}),
-                        source_path=goi_nguon.get("source_path", ""),
-                        media_dir=goi_nguon.get("media_dir", "")
-                    )
-
-                    them_file = trung_seed_file = trung_main_file = 0
-                    thieu_yccd_file = thieu_dap_an_file = 0
-
-                    loi_cau_truc = _seed_kiem_tra_file_truoc_khi_nhap(ds_tach)
-                    if loi_cau_truc:
-                        file_loi += 1
-                        bao_cao.append({
-                            "File": ten_file,
-                            "Phát hiện": len(ds_tach),
-                            "Nhập mới": 0,
-                            "Đồng bộ NH": 0,
-                            "Liên kết nguồn": 0,
-                            "MCQ": sum(1 for x in ds_tach if x.get("dang_cau") == "Trắc nghiệm 4 lựa chọn"),
-                            "Đ/S": sum(1 for x in ds_tach if x.get("dang_cau") == "Đúng / Sai"),
-                            "TL ngắn": sum(1 for x in ds_tach if x.get("dang_cau") == "Trả lời ngắn"),
-                            "Trùng hạt giống": 0,
-                            "Đã có NH": 0,
-                            "Thiếu YCCĐ": sum(1 for x in ds_tach if not str(x.get("yccd", "") or "").strip()),
-                            "Thiếu đáp án": sum(1 for x in ds_tach if not _seed_co_dap_an_nguon(x)),
-                            "Trạng thái": "BỎ QUA FILE - lỗi cấu trúc",
-                        })
-                        st.warning(
-                            f"Bỏ qua {ten_file}: có {len(loi_cau_truc)} câu lỗi cấu trúc. "
-                            "Các file khác vẫn tiếp tục được nhập."
-                        )
-                        continue
-
-                    file_seed_ids = set()
-
-                    for q in ds_tach:
-                        fp = _seed_fingerprint_noi_dung(q)
-                        old_exact = seed_by_fp.get(fp) if fp else None
-
-                        if old_exact is not None:
-                            refresh_fields = [
-                                "nguon_file", "so_cau_goc", "noi_dung_goc", "noi_dung_hien_thi",
-                                "dang_cau_goi_y", "dang_cau", "yccd", "muc_do", "thanh_phan_nang_luc",
-                                "chi_bao", "hanh_vi_nang_luc", "kien_thuc_chu_de", "dap_an_nguon",
-                                "giai_thich_nguon", "nguon_giai_thich", "nhan_dinh_meta",
-                                "kiem_tra_dap_an", "trang_thai_kiem_tra_dap_an",
-                                "gv_da_duyet_dap_an", "duoc_dung_lam_hat_giong", "nguon_da_kiem_tra_truoc"
-                            ]
-                            for fld in refresh_fields:
-                                if fld in q:
-                                    old_exact[fld] = q.get(fld)
-                            for fld in [
-                                "tai_nguyen_truc_quan", "du_lieu_truc_quan",
-                                "nguon_file_path", "thu_muc_media"
-                            ]:
-                                val = q.get(fld)
-                                if val not in (None, "", [], {}):
-                                    old_exact[fld] = val
-                            old_exact["ngay_cap_nhat_tu_file"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                            sid = str(old_exact.get("id", "") or "").strip()
-                            if sid:
-                                file_seed_ids.add(sid)
-                            trung_seed += 1
-                            trung_seed_file += 1
-                            continue
-
-                        q["kiem_tra_dap_an"] = "Nguồn đã chuẩn hóa trước khi nhập"
-                        q["trang_thai_kiem_tra_dap_an"] = "Không kiểm tra AI"
-                        q["gv_da_duyet_dap_an"] = True
-                        q["duoc_dung_lam_hat_giong"] = True
-                        q["nguon_da_kiem_tra_truoc"] = True
-
-                        if not str(q.get("yccd", "") or "").strip():
-                            thieu_yccd_file += 1
-                        if not _seed_co_dap_an_nguon(q):
-                            thieu_dap_an_file += 1
-
-                        # Tra index NH chính O(1), không quét toàn bộ bank cho từng câu.
-                        ok_sync, _ = _seed_du_dieu_kien_dong_bo(q)
-                        if ok_sync:
-                            q_bank_tmp = _seed_chuyen_thanh_cau_ngan_hang(q)
-                            if q_bank_tmp:
-                                old_main = _seed_tim_trung_chinh_xac_index(q_bank_tmp, index_main)
-                                if old_main is not None:
-                                    trung_main += 1
-                                    trung_main_file += 1
-                                    q["id_cau_trung_ngan_hang"] = str(old_main.get("id", ""))
-
-                        bank_seed.append(q)
-                        if fp:
-                            seed_by_fp[fp] = q
-                        sid = str(q.get("id", "") or "").strip()
-                        if sid:
-                            file_seed_ids.add(sid)
-                        them += 1
-                        them_file += 1
-
-                    # Điểm sửa chính cho nhiều file:
-                    # đồng bộ NGAY file vừa xử lý vào bank trong RAM, rồi mới chuyển file kế.
-                    da_chuyen_file, bo_qua_file, index_main = _seed_dong_bo_ids_vao_bo_nho(
-                        bank_seed, bank_main, file_seed_ids, index_main=index_main
-                    )
-                    da_chuyen_tong += da_chuyen_file
-                    bo_qua_sync_tong += bo_qua_file
-                    file_ok += 1
-
-                    # Checkpoint local sau MỖI file. Nếu file sau lỗi/crash, file trước không mất.
-                    _luu_json_local(SEED_BANK_PATH, bank_seed)
-                    _luu_json_local(BANK_PATH, bank_main)
-
-                    loai_counts = {
-                        k: sum(1 for x in ds_tach if x.get("dang_cau") == k)
-                        for k in ["Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"]
-                    }
-                    # Đếm trực tiếp số câu NH chung đang mang dấu vết của file này.
-                    # Đây là cột kiểm tra liên kết nguồn, không phải chỉ số "thêm mới".
-                    lien_ket_file = sum(
-                        1 for _qmain in bank_main
-                        if ten_file in _main_cac_nguon_hat_giong(_qmain)
-                    )
+                # KIỂM TRA TRƯỚC KHI NHẬP: lỗi parser cấu trúc -> không nhập nửa chừng.
+                loi_file = _seed_kiem_tra_file_truoc_khi_nhap(ds_tach)
+                if loi_file:
                     bao_cao.append({
-                        "File": ten_file,
-                        "Phát hiện": len(ds_tach),
-                        "Nhập mới": them_file,
-                        "Đồng bộ NH": da_chuyen_file,
-                        "Liên kết nguồn": lien_ket_file,
-                        "MCQ": loai_counts["Trắc nghiệm 4 lựa chọn"],
-                        "Đ/S": loai_counts["Đúng / Sai"],
-                        "TL ngắn": loai_counts["Trả lời ngắn"],
-                        "Trùng hạt giống": trung_seed_file,
-                        "Đã có NH": trung_main_file,
-                        "Thiếu YCCĐ": thieu_yccd_file,
-                        "Thiếu đáp án": thieu_dap_an_file,
-                        "Trạng thái": "Đã xử lý",
+                        "File": f.name, "Phát hiện": len(ds_tach), "Nhập mới": 0,
+                        "MCQ": sum(1 for x in ds_tach if x.get("dang_cau") == "Trắc nghiệm 4 lựa chọn"),
+                        "Đ/S": sum(1 for x in ds_tach if x.get("dang_cau") == "Đúng / Sai"),
+                        "TL ngắn": sum(1 for x in ds_tach if x.get("dang_cau") == "Trả lời ngắn"),
+                        "Trùng hạt giống (chính xác)": 0, "Đã có ngân hàng": 0, "Nghi gần trùng": 0,
+                        "Thiếu YCCĐ": sum(1 for x in ds_tach if not str(x.get("yccd", "") or "").strip()),
+                        "Thiếu đáp án": sum(1 for x in ds_tach if not _seed_co_dap_an_nguon(x)),
+                        "Ghi chú": "KHÔNG NHẬP - lỗi cấu trúc: " + ", ".join(f"Câu {x['Câu']}: {x['Lỗi']}" for x in loi_file[:8])
+                                   + (f" ... (+{len(loi_file)-8} câu)" if len(loi_file) > 8 else "")
                     })
-
-                except Exception as e:
-                    # Một file lỗi KHÔNG được làm cả batch thất bại.
-                    file_loi += 1
-                    bao_cao.append({
-                        "File": ten_file,
-                        "Phát hiện": 0,
-                        "Nhập mới": 0,
-                        "Đồng bộ NH": 0,
-                        "Liên kết nguồn": 0,
-                        "MCQ": 0, "Đ/S": 0, "TL ngắn": 0,
-                        "Trùng hạt giống": 0, "Đã có NH": 0,
-                        "Thiếu YCCĐ": 0, "Thiếu đáp án": 0,
-                        "Trạng thái": f"Lỗi file: {e}",
-                    })
-                    st.error(f"File {ten_file} bị lỗi và đã được bỏ qua: {e}")
+                    st.error(
+                        f"File {f.name} chưa được nhập vì parser phát hiện {len(loi_file)} câu lỗi cấu trúc. "
+                        "Không có câu nào của file này được ghi vào hạt giống. "
+                        + " | ".join(f"Câu {x['Câu']}: {x['Lỗi']}" for x in loi_file[:6])
+                    )
                     continue
 
-            # ------------------------------------------------------
-            # V5: KHÔI PHỤC LIÊN KẾT CŨ TỰ ĐỘNG
-            # ------------------------------------------------------
-            # Các bản app cũ có thể đã có câu trong Hạt giống nhưng NH chung chưa
-            # lưu nguon_seed_id/tên file. Dùng index O(1) để đối chiếu một lần:
-            # - nếu câu đã có: chỉ gắn lại liên kết nguồn, KHÔNG tạo bản sao;
-            # - nếu câu đủ metadata mà thực sự chưa có: bổ sung vào NH chung.
-            all_seed_ids = {
-                str(_s.get("id", "") or "").strip()
-                for _s in bank_seed
-                if str(_s.get("id", "") or "").strip()
-            }
-            linked_seed_ids = set(index_main.get("by_seed", {}).keys())
-            seed_ids_can_repair = all_seed_ids - linked_seed_ids
-            da_khoi_phuc_cu = 0
-            bo_qua_khoi_phuc_cu = 0
-            if seed_ids_can_repair:
-                status_box.info(
-                    f"3/5 Đang khôi phục liên kết cho {len(seed_ids_can_repair)} câu hạt giống cũ..."
-                )
-                da_khoi_phuc_cu, bo_qua_khoi_phuc_cu, index_main = _seed_dong_bo_ids_vao_bo_nho(
-                    bank_seed, bank_main, seed_ids_can_repair, index_main=index_main
-                )
+                for q in ds_tach:
+                    fp = _seed_fingerprint_noi_dung(q)
+                    # Chỉ trùng CHÍNH XÁC mới bỏ bản sao trong hạt giống.
+                    old_exact = seed_by_fp.get(fp) if fp else None
+                    if old_exact is not None:
+                        # NHẬP LẠI FILE CHUẨN: làm mới dữ liệu parser của bản hạt giống cũ,
+                        # nhưng GIỮ NGUYÊN id để không mất liên kết với Ngân hàng câu hỏi.
+                        #
+                        # Trước đây chỉ điền trường còn trống. Vì vậy nếu bản cũ đã bị parser
+                        # nhận sai dạng/đáp án/metadata nhưng trường đó không rỗng, nhập lại file
+                        # vẫn không sửa được và câu tiếp tục bị giữ ở hạt giống.
+                        #
+                        # Từ bản này: nội dung vừa đọc từ file là nguồn chuẩn mới nhất cho các
+                        # trường do parser tạo ra.
+                        refresh_fields = [
+                            "nguon_file", "so_cau_goc",
+                            "noi_dung_goc", "noi_dung_hien_thi",
+                            "dang_cau_goi_y", "dang_cau",
+                            "yccd", "muc_do", "thanh_phan_nang_luc",
+                            "chi_bao", "hanh_vi_nang_luc", "kien_thuc_chu_de",
+                            "dap_an_nguon", "giai_thich_nguon", "nguon_giai_thich",
+                            "nhan_dinh_meta",
+                            "kiem_tra_dap_an", "trang_thai_kiem_tra_dap_an",
+                            "gv_da_duyet_dap_an", "duoc_dung_lam_hat_giong",
+                            "nguon_da_kiem_tra_truoc"
+                        ]
 
-            progress.progress(82)
-            status_box.info("4/5 Đang lưu một lần toàn bộ kết quả lên Supabase...")
+                        for fld in refresh_fields:
+                            if fld in q:
+                                old_exact[fld] = q.get(fld)
 
-            # Chỉ ghi cloud 2 lần cho CẢ batch, không ghi lại sau từng file.
-            ok_seed_save = luu_ngan_hang_hat_giong(bank_seed)
-            ok_bank_save = luu_ngan_hang(bank_main)
-            ok_seed_cloud = ok_seed_save and not _co_pending_sync(SEED_BANK_PATH)
-            ok_bank_cloud = ok_bank_save and not _co_pending_sync(BANK_PATH)
+                        # Ảnh/bảng chỉ thay khi lần đọc mới thực sự có dữ liệu,
+                        # tránh vô tình làm mất tài nguyên trực quan của bản cũ.
+                        for fld in [
+                            "tai_nguyen_truc_quan", "du_lieu_truc_quan",
+                            "nguon_file_path", "thu_muc_media"
+                        ]:
+                            val = q.get(fld)
+                            if val not in (None, "", [], {}):
+                                old_exact[fld] = val
+
+                        old_exact["ngay_cap_nhat_tu_file"] = datetime.now().strftime(
+                            "%d/%m/%Y %H:%M"
+                        )
+
+                        # Không xóa id/nguon_seed_id liên kết cũ.
+                        # Ngay sau vòng nhập, hàm đồng bộ sẽ quét lại toàn bộ seed bank;
+                        # câu đủ YCCĐ + đáp án sẽ được đưa/cập nhật vào ngân hàng chính.
+                        old_sid = str(old_exact.get("id", "") or "").strip()
+                        if old_sid:
+                            seed_ids_can_sync.add(old_sid)
+                        trung_seed += 1; trung_seed_file += 1
+                        continue
+
+                    # Nhập nhanh: không chạy so gần trùng (SequenceMatcher) cho từng câu.
+                    # Chống trùng chính xác bằng fingerprint ở trên vẫn giữ nguyên.
+                    # Rà soát gần trùng có thể chạy ở bước bảo trì riêng khi cần.
+
+                    q["kiem_tra_dap_an"] = "Nguồn đã chuẩn hóa trước khi nhập"
+                    q["trang_thai_kiem_tra_dap_an"] = "Không kiểm tra AI"
+                    q["gv_da_duyet_dap_an"] = True
+                    q["duoc_dung_lam_hat_giong"] = True
+                    q["nguon_da_kiem_tra_truoc"] = True
+                    if not str(q.get("yccd", "") or "").strip(): thieu_yccd_file += 1
+                    if not _seed_co_dap_an_nguon(q): thieu_dap_an_file += 1
+
+                    # Câu đã có trong ngân hàng chính vẫn được giữ ở hạt giống; chỉ ghi nhận/link, không bỏ nguồn.
+                    ok_sync, _ = _seed_du_dieu_kien_dong_bo(q)
+                    if ok_sync:
+                        q_bank = _seed_chuyen_thanh_cau_ngan_hang(q)
+                        if q_bank:
+                            old_main, _ = _seed_tim_trung_chinh_xac_ngan_hang(q_bank, bank_main)
+                            if old_main is not None:
+                                trung_main += 1; trung_main_file += 1
+                                q["id_cau_trung_ngan_hang"] = str(old_main.get("id", ""))
+                    bank_seed.append(q)
+                    if fp:
+                        seed_by_fp[fp] = q
+                    q_sid = str(q.get("id", "") or "").strip()
+                    if q_sid:
+                        seed_ids_can_sync.add(q_sid)
+                    if fp: fp_old.add(fp)
+                    them += 1; them_file += 1
+                loai_counts = {k: sum(1 for x in ds_tach if x.get("dang_cau") == k) for k in ["Trắc nghiệm 4 lựa chọn","Đúng / Sai","Trả lời ngắn","Chưa xác định"]}
+                bao_cao.append({
+                    "File": f.name, "Phát hiện": len(ds_tach), "Nhập mới": them_file,
+                    "MCQ": loai_counts["Trắc nghiệm 4 lựa chọn"], "Đ/S": loai_counts["Đúng / Sai"], "TL ngắn": loai_counts["Trả lời ngắn"],
+                    "Trùng hạt giống (chính xác)": trung_seed_file, "Đã có ngân hàng": trung_main_file,
+                    "Nghi gần trùng": nghi_trung_file,
+                    "Thiếu YCCĐ": thieu_yccd_file, "Thiếu đáp án": thieu_dap_an_file,
+                    "Ghi chú": ("Không tìm thấy mốc câu phù hợp" if txt.strip() and not ds_tach else ("Không đọc được nội dung" if not txt.strip() else ""))
+                })
+            progress.progress(55)
+            status_box.info("3/4 Đang đồng bộ câu mới vào Ngân hàng chung...")
+
+            # KHÔNG lưu seed bank một lần riêng ở đây nữa. Hàm đồng bộ bên dưới
+            # sẽ ghi seed + NH chính đúng 1 lần mỗi kho. Bản cũ ghi seed hai lần.
+            da_chuyen, bo_qua_sync = dong_bo_hat_giong_an_toan_sang_ngan_hang(
+                bank_seed,
+                chi_seed_ids=seed_ids_can_sync,
+                bank_main=bank_main,
+                kiem_tra_gan_trung=False,
+            )
+            ok_seed_save = True  # local được ghi trong hàm đồng bộ
+            ok_seed_cloud = not _co_pending_sync(SEED_BANK_PATH)
+            ok_bank_cloud = not _co_pending_sync(BANK_PATH)
 
             progress.progress(100)
-            status_box.success("5/5 Hoàn tất nhập, liên kết và đồng bộ.")
+            status_box.success("4/4 Hoàn tất nhập và đồng bộ.")
 
-            if ok_seed_cloud and ok_bank_cloud:
-                msg = (
-                    f"Đã xử lý {file_ok}/{tong_file_nhap} file; nhập mới {them} câu hạt giống; "
-                    f"đồng bộ mới {da_chuyen_tong} câu của lượt này; "
-                    f"khôi phục/bổ sung thêm {da_khoi_phuc_cu} câu từ hạt giống cũ; "
-                    f"{trung_seed} câu trùng hạt giống được cập nhật. "
-                    f"NH chung hiện có {len(bank_main)} câu."
+            if ok_seed_save and ok_seed_cloud and ok_bank_cloud:
+                st.success(
+                    f"Đã nhập {them} câu vào hạt giống; {trung_seed} câu trùng chính xác đã được gộp/cập nhật "
+                    f"(đáp án, hướng dẫn giải, ảnh/bảng và metadata nếu file mới có); "
+                    f"{trung_main} câu đã có trong ngân hàng chính vẫn được giữ nguồn. "
+                    f"📚 Đã đồng bộ thêm {da_chuyen} câu mới của chính lượt nhập này vào ngân hàng chính. Không gọi Gemini."
                 )
-                # Rerun để số "Ngân hàng" ở sidebar cập nhật ngay, tránh cảm giác
-                # app đã báo đồng bộ nhưng bộ đếm bên trái vẫn là số cũ.
-                st.session_state["_seed_import_flash_v5"] = {
-                    "message": msg,
-                    "seed_count": len(bank_seed),
-                    "bank_count": len(bank_main),
-                    "bao_cao": bao_cao,
-                }
-                st.rerun()
             else:
-                st.warning(
-                    "Đã lưu đầy đủ bản LOCAL sau từng file, nhưng Supabase chưa xác minh xong. "
-                    "App sẽ ưu tiên bản local, nên các câu vừa nhập không bị mất."
+                st.error(
+                    "Dữ liệu đã ghi vào bản local nhưng chưa xác minh ghi thành công lên Supabase. "
+                    "App sẽ không lấy bản cloud cũ đè lên dữ liệu local. Hãy kiểm tra kết nối/Supabase rồi thử lại."
                 )
                 err_seed = _SHARED_WRITE_ERRORS.get(_document_key(SEED_BANK_PATH), "")
                 err_bank = _SHARED_WRITE_ERRORS.get(_document_key(BANK_PATH), "")
                 if err_seed or err_bank:
                     st.code("\n".join(x for x in [err_seed, err_bank] if x))
-
-            if file_loi:
-                st.info(
-                    f"Có {file_loi} file bị bỏ qua/lỗi; {file_ok} file còn lại vẫn đã được xử lý độc lập."
-                )
-            if bo_qua_sync_tong or bo_qua_khoi_phuc_cu:
-                st.caption(
-                    "Các câu không tạo bản mới chủ yếu là câu đã có trong NH chung; "
-                    "V5 vẫn gắn/khôi phục liên kết file nguồn cho chúng. "
-                    f"Số lượt không tạo bản mới: {bo_qua_sync_tong + bo_qua_khoi_phuc_cu}."
-                )
+            if bo_qua_sync:
+                st.caption(f"Có {bo_qua_sync} câu đang được giữ ở hạt giống nhưng chưa đồng bộ hoặc bị bỏ qua khi đồng bộ (thiếu YCCĐ/đáp án hoặc trùng).")
             if bao_cao:
                 st.dataframe(pd.DataFrame(bao_cao), use_container_width=True, hide_index=True)
 
