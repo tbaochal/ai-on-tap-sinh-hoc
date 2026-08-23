@@ -86,6 +86,7 @@ _SUPABASE_CLIENT = None
 _SUPABASE_TRIED = False
 
 
+@st.cache_resource(show_spinner=False)
 def _supabase_client():
     global _SUPABASE_CLIENT, _SUPABASE_TRIED
 
@@ -133,6 +134,7 @@ def _document_key(path):
     return os.path.basename(str(path or "")).strip()
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def _doc_document_shared(path, default=None):
     """Đọc app_documents trên Supabase; lỗi mạng thì quay về JSON local."""
     client_sb = _supabase_client()
@@ -179,9 +181,15 @@ def _luu_document_shared(path, data):
         except Exception:
             cloud_ok = False
 
+    try:
+        _doc_document_shared.clear()
+    except Exception:
+        pass
+
     return cloud_ok or local_ok
 
 
+@st.cache_data(ttl=60, show_spinner=False)
 def _doc_students_shared():
     client_sb = _supabase_client()
     if client_sb is not None:
@@ -258,6 +266,11 @@ def _luu_students_shared(ds):
         except Exception:
             cloud_ok = False
 
+    try:
+        _doc_students_shared.clear()
+    except Exception:
+        pass
+
     return cloud_ok or local_ok
 
 
@@ -271,11 +284,16 @@ def _xoa_student_shared(student_id):
         return False
     try:
         client_sb.table("students").delete().eq("student_id", sid).execute()
+        try:
+            _doc_students_shared.clear()
+        except Exception:
+            pass
         return True
     except Exception:
         return False
 
 
+@st.cache_data(ttl=15, show_spinner=False)
 def _doc_attempts_shared():
     client_sb = _supabase_client()
     if client_sb is not None:
@@ -388,6 +406,11 @@ def _luu_attempts_shared(ds):
         except Exception:
             cloud_ok = False
 
+    try:
+        _doc_attempts_shared.clear()
+    except Exception:
+        pass
+
     return cloud_ok or local_ok
 
 
@@ -475,10 +498,15 @@ def cac_nang_luc_phu_hop(yccd, muc_do=None, dang_cau=None):
 # ==========================================================
 # GEMINI
 # ==========================================================
-try:
-    client = genai.Client(
+@st.cache_resource(show_spinner=False)
+def _gemini_client():
+    return genai.Client(
         api_key=st.secrets["GEMINI_API_KEY"]
     )
+
+
+try:
+    client = _gemini_client()
 except Exception:
     st.error(
         "Không đọc được GEMINI_API_KEY trong "
@@ -502,6 +530,7 @@ if not isinstance(KHO_YCCD, dict):
 # ==========================================================
 # NGÂN HÀNG CÂU HỎI
 # ==========================================================
+@st.cache_data(ttl=60, show_spinner=False)
 def doc_ngan_hang():
 
     data = _doc_document_shared(BANK_PATH, [])
@@ -518,7 +547,12 @@ def doc_ngan_hang():
 
 
 def luu_ngan_hang(data):
-    return _luu_document_shared(BANK_PATH, data)
+    ok = _luu_document_shared(BANK_PATH, data)
+    try:
+        doc_ngan_hang.clear()
+    except Exception:
+        pass
+    return ok
 
 
 # ==========================================================
@@ -15040,6 +15074,7 @@ def tinh_diem_xep_hang_hoc_sinh(lich_su):
     }
 
 
+@st.cache_data(ttl=15, show_spinner=False)
 def tinh_bang_xep_hang_lop(lop_chon):
     """
     Tính bảng xếp hạng nội bộ của MỘT LỚP.
@@ -20222,6 +20257,7 @@ def ngan_hang_hat_giong():
 # ==========================================================
 # NGÂN HÀNG TỐT NGHIỆP TỪ ĐỀ THẬT / ĐỀ THI THỬ
 # ==========================================================
+@st.cache_data(ttl=60, show_spinner=False)
 def doc_ngan_hang_tot_nghiep_thuc_te():
     """
     Đọc ngân hàng đề thật và tự nâng cấp dữ liệu cũ.
@@ -20252,7 +20288,12 @@ def doc_ngan_hang_tot_nghiep_thuc_te():
 
 
 def luu_ngan_hang_tot_nghiep_thuc_te(ds):
-    luu_json_list(GRAD_REAL_BANK_PATH, ds)
+    ok = luu_json_list(GRAD_REAL_BANK_PATH, ds)
+    try:
+        doc_ngan_hang_tot_nghiep_thuc_te.clear()
+    except Exception:
+        pass
+    return ok
 
 
 def _grad_norm_text(value):
@@ -23724,6 +23765,7 @@ def khoa_nang_luc(yccd, muc_do, nang_luc, chi_bao=""):
     ])
 
 
+@st.cache_data(ttl=15, show_spinner=False)
 def tao_ho_so_tu_lich_su(hoc_sinh_id):
     """
     Hồ sơ động theo từng đơn vị đánh giá:
@@ -25418,33 +25460,40 @@ def hoc_sinh():
             f"**Mã học sinh:** {hs_id_chuan}"
         )
 
-    profile = tao_ho_so_tu_lich_su(
-        hs_id_chuan
-    )
-
-    # Hồ sơ cá nhân hóa vẫn được tính và lưu ngầm để chọn câu phù hợp.
-    # Không hiển thị bảng YCCĐ/mức độ/năng lực cho học sinh ở màn hình chính.
-
-    # ======================================================
-    # NGÂN HÀNG
-    # ======================================================
-    # Ngân hàng dùng cho học sinh là NGÂN HÀNG CHUNG:
-    # gồm câu ôn tập/kiểm tra và câu được xây dựng cho tốt nghiệp THPT.
-    # Mặc định mọi câu đã duyệt đều được dùng luyện HS, trừ khi GV tắt cờ này.
-    bank = [
-        q
-        for q in (doc_ngan_hang() + doc_ngan_hang_tot_nghiep_thuc_te())
-        if (
-            q.get(
-                "trang_thai",
-                "Đã duyệt"
-            ) not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
-            and q.get(
-                "duoc_dung_luyen_hs",
-                True
-            )
+    # Khi học sinh ĐANG LÀM hoặc ĐÃ NỘP, không tính lại hồ sơ cá nhân
+    # và không đọc lại toàn bộ ngân hàng sau mỗi lần chọn radio/text input.
+    # Các thao tác đó khiến Streamlit rerun toàn script và là nút thắt lớn nhất.
+    if st.session_state.hs_dang_lam:
+        profile = {}
+        bank = list(st.session_state.get("hs_de_thi", []) or [])
+    else:
+        profile = tao_ho_so_tu_lich_su(
+            hs_id_chuan
         )
-    ]
+
+        # Hồ sơ cá nhân hóa vẫn được tính và lưu ngầm để chọn câu phù hợp.
+        # Không hiển thị bảng YCCĐ/mức độ/năng lực cho học sinh ở màn hình chính.
+
+        # ======================================================
+        # NGÂN HÀNG
+        # ======================================================
+        # Ngân hàng dùng cho học sinh là NGÂN HÀNG CHUNG:
+        # gồm câu ôn tập/kiểm tra và câu được xây dựng cho tốt nghiệp THPT.
+        # Mặc định mọi câu đã duyệt đều được dùng luyện HS, trừ khi GV tắt cờ này.
+        bank = [
+            q
+            for q in (doc_ngan_hang() + doc_ngan_hang_tot_nghiep_thuc_te())
+            if (
+                q.get(
+                    "trang_thai",
+                    "Đã duyệt"
+                ) not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+                and q.get(
+                    "duoc_dung_luyen_hs",
+                    True
+                )
+            )
+        ]
 
     if not bank:
         st.warning(
@@ -27161,6 +27210,15 @@ def hoc_sinh():
                 luu_lich_su_hoc_sinh(
                     ds_ls
                 )
+                # Kết quả vừa thay đổi: buộc hồ sơ/xếp hạng tính lại ở lần kế tiếp.
+                try:
+                    tao_ho_so_tu_lich_su.clear()
+                except Exception:
+                    pass
+                try:
+                    tinh_bang_xep_hang_lop.clear()
+                except Exception:
+                    pass
 
             st.session_state.hs_ban_ghi_hien_tai = (
                 ban_ghi
