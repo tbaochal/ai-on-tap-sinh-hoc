@@ -528,11 +528,7 @@ DEFAULT_GV_PROFILE = {
     "chuc_vu": "Giáo viên",
     "don_vi": "",
     "loi_chao": "Khơi gợi tư duy khoa học, nuôi dưỡng niềm yêu thích Sinh học.",
-    "avatar_path": "",
-    # Ảnh đại diện được lưu trực tiếp trong hồ sơ dùng chung trên Supabase
-    # dưới dạng data URI (base64). Nhờ vậy Streamlit Cloud không phụ thuộc
-    # vào ổ đĩa tạm của máy chủ và ảnh không mất khi app khởi động lại.
-    "avatar_data_uri": ""
+    "avatar_path": ""
 }
 
 
@@ -551,44 +547,15 @@ def luu_ho_so_giao_vien(profile):
     return _luu_document_shared(GV_PROFILE_PATH, profile)
 
 
-def _avatar_data_uri(path_or_data):
-    """Trả data URI của avatar từ Supabase hoặc từ file local cũ."""
+def _avatar_data_uri(path):
     try:
-        value = str(path_or_data or "").strip()
-        if not value:
+        if not path or not os.path.exists(path):
             return ""
-        # Bản mới: ảnh đã nằm trong hồ sơ Supabase dưới dạng data URI.
-        if value.startswith("data:image/") and ";base64," in value:
-            return value
-        # Tương thích bản cũ/local: vẫn đọc avatar_path nếu file còn tồn tại.
-        if not os.path.exists(value):
-            return ""
-        ext = os.path.splitext(value)[1].lower()
+        ext = os.path.splitext(path)[1].lower()
         mime = "image/png" if ext == ".png" else "image/jpeg"
-        with open(value, "rb") as f:
+        with open(path, "rb") as f:
             b64 = base64.b64encode(f.read()).decode("ascii")
         return f"data:{mime};base64,{b64}"
-    except Exception:
-        return ""
-
-
-def _avatar_upload_to_data_uri(uploaded_file):
-    """Mã hóa ảnh upload để lưu bền vững trong app_documents/ho_so_giao_vien.json."""
-    try:
-        if uploaded_file is None:
-            return ""
-        raw = bytes(uploaded_file.getbuffer())
-        if not raw:
-            return ""
-        # Avatar chỉ là ảnh nhỏ; giới hạn để tránh làm hồ sơ JSON quá nặng.
-        if len(raw) > 4 * 1024 * 1024:
-            raise ValueError("Ảnh đại diện lớn hơn 4 MB. Vui lòng chọn ảnh nhỏ hơn.")
-        ext = os.path.splitext(str(uploaded_file.name or ""))[1].lower()
-        mime = "image/png" if ext == ".png" else "image/jpeg"
-        b64 = base64.b64encode(raw).decode("ascii")
-        return f"data:{mime};base64,{b64}"
-    except ValueError:
-        raise
     except Exception:
         return ""
 
@@ -649,7 +616,7 @@ st.markdown(
 
 def hien_thi_the_giao_vien_sidebar():
     profile = doc_ho_so_giao_vien()
-    avatar_uri = _avatar_data_uri(profile.get("avatar_data_uri")) or _avatar_data_uri(profile.get("avatar_path"))
+    avatar_uri = _avatar_data_uri(profile.get("avatar_path"))
     if avatar_uri:
         avatar_html = f'<img class="teacher-avatar" src="{avatar_uri}" alt="Ảnh giáo viên">'
     else:
@@ -674,45 +641,21 @@ def hien_thi_the_giao_vien_sidebar():
         avatar_file = st.file_uploader("Ảnh đại diện", type=["png","jpg","jpeg"], accept_multiple_files=False, key="gv_profile_avatar")
         if st.button("💾 Lưu hồ sơ", use_container_width=True, key="gv_profile_save"):
             avatar_path = profile.get("avatar_path", "")
-            avatar_data_uri = str(profile.get("avatar_data_uri", "") or "").strip()
             if avatar_file is not None:
-                try:
-                    # Lưu bản chính vào hồ sơ dùng chung trên Supabase.
-                    avatar_data_uri = _avatar_upload_to_data_uri(avatar_file)
-                    if not avatar_data_uri:
-                        st.error("Không đọc được ảnh đại diện.")
-                        st.stop()
-
-                    # Vẫn ghi một bản local để tương thích khi chạy offline trên máy GV.
-                    ext = os.path.splitext(avatar_file.name)[1].lower()
-                    if ext not in [".png", ".jpg", ".jpeg"]:
-                        ext = ".jpg"
-                    avatar_path = os.path.join(GV_AVATAR_DIR, "avatar_giao_vien" + ext)
-                    try:
-                        with open(avatar_path, "wb") as f:
-                            f.write(avatar_file.getbuffer())
-                    except Exception:
-                        # Streamlit Cloud có thể dùng ổ đĩa tạm; lỗi local không được
-                        # làm mất bản ảnh đã chuẩn bị để lưu trên Supabase.
-                        pass
-                except ValueError as e:
-                    st.error(str(e))
-                    st.stop()
-
-            # Nếu hồ sơ cũ chưa có ảnh Supabase nhưng file local vẫn còn, tự di trú
-            # khi GV bấm Lưu hồ sơ mà không cần chọn lại ảnh.
-            if not avatar_data_uri and avatar_path:
-                avatar_data_uri = _avatar_data_uri(avatar_path)
-
+                ext = os.path.splitext(avatar_file.name)[1].lower()
+                if ext not in [".png", ".jpg", ".jpeg"]:
+                    ext = ".jpg"
+                avatar_path = os.path.join(GV_AVATAR_DIR, "avatar_giao_vien" + ext)
+                with open(avatar_path, "wb") as f:
+                    f.write(avatar_file.getbuffer())
             luu_ho_so_giao_vien({
                 "ten": ten.strip() or DEFAULT_GV_PROFILE["ten"],
                 "chuc_vu": chuc_vu.strip(),
                 "don_vi": don_vi.strip(),
                 "loi_chao": loi_chao.strip(),
-                "avatar_path": avatar_path,
-                "avatar_data_uri": avatar_data_uri
+                "avatar_path": avatar_path
             })
-            st.success("Đã lưu hồ sơ giáo viên và ảnh đại diện vào dữ liệu dùng chung.")
+            st.success("Đã lưu hồ sơ giáo viên.")
             st.rerun()
 
 # ==========================================================
@@ -6183,7 +6126,7 @@ def trang_chu():
     chuc_vu = str(profile.get("chuc_vu", "") or "").strip()
     don_vi = str(profile.get("don_vi", "") or "").strip()
     loi_chao = str(profile.get("loi_chao", "") or "").strip()
-    avatar_uri = _avatar_data_uri(profile.get("avatar_data_uri")) or _avatar_data_uri(profile.get("avatar_path"))
+    avatar_uri = _avatar_data_uri(profile.get("avatar_path"))
 
     st.markdown(
         """
@@ -11804,7 +11747,7 @@ def hien_thi_de_xem_truoc(de):
                     q.get("tinh_huong", "")
                 )
 
-            if q.get("tai_nguyen_truc_quan"):
+            if q.get("tai_nguyen_truc_quan") or q.get("du_lieu_truc_quan"):
                 hien_thi_tai_nguyen_cau_tot_nghiep(q)
             else:
                 hien_thi_du_lieu_truc_quan_cau(q)
@@ -16597,6 +16540,62 @@ def luu_ngan_hang_hat_giong(ds):
     luu_json_list(SEED_BANK_PATH, ds)
 
 
+def _anh_base64_bytes(value):
+    """Giải mã ảnh nhúng base64; chấp nhận cả data URI."""
+    s = str(value or "").strip()
+    if not s:
+        return b""
+    if s.startswith("data:") and "," in s:
+        s = s.split(",", 1)[1]
+    try:
+        return base64.b64decode(s, validate=False)
+    except Exception:
+        return b""
+
+
+def _hien_thi_anh_tu_resource(data, width=620):
+    """
+    Hiển thị ảnh theo thứ tự ưu tiên:
+    1) file local nếu còn tồn tại;
+    2) URL nếu có;
+    3) bytes base64 đã nhúng trong JSON/Supabase.
+
+    Nhờ bước (3), app học sinh vẫn thấy ảnh khi chạy ở deployment/instance
+    khác app giáo viên hoặc sau khi filesystem tạm của Streamlit bị reset.
+    """
+    if not isinstance(data, dict):
+        return False
+
+    for key in ("duong_dan", "duong_dan_anh"):
+        path = str(data.get(key, "") or "").strip()
+        if path and os.path.exists(path):
+            st.image(path, width=width)
+            return True
+
+    for key in ("url_anh", "url", "public_url"):
+        url = str(data.get(key, "") or "").strip()
+        if url.startswith(("http://", "https://")):
+            try:
+                st.image(url, width=width)
+                return True
+            except Exception:
+                pass
+
+    blob = _anh_base64_bytes(
+        data.get("du_lieu_base64")
+        or data.get("image_base64")
+        or data.get("base64")
+        or ""
+    )
+    if blob:
+        try:
+            st.image(blob, width=width)
+            return True
+        except Exception:
+            pass
+
+    return False
+
 
 def _seed_safe_stem(ten_file):
     stem = os.path.splitext(os.path.basename(str(ten_file or "hat_giong")))[0]
@@ -16663,7 +16662,6 @@ def _seed_docx_text_va_tai_nguyen(raw_bytes, ten_file, media_dir, safe_stem):
     resources = {}
     resource_counter = 0
     image_counter = 0
-    seen_image_hashes = set()
 
     def add_resource(res):
         nonlocal resource_counter
@@ -16686,12 +16684,9 @@ def _seed_docx_text_va_tai_nguyen(raw_bytes, ten_file, media_dir, safe_stem):
             try:
                 part = doc.part.related_parts[rel_id]
                 blob = bytes(part.blob)
-                blob_hash = hashlib.sha1(blob).hexdigest()
-                # Tránh nhân đôi ảnh do ô merge/quan hệ Word lặp lại.
-                if blob_hash in seen_image_hashes:
-                    continue
-                seen_image_hashes.add(blob_hash)
-
+                # Không khử trùng theo hash toàn tài liệu: cùng một hình có thể được
+                # tác giả chủ ý dùng lại ở nhiều câu khác nhau. Mỗi lần xuất hiện
+                # trong luồng Word phải được gắn với đúng câu tương ứng.
                 content_type = str(getattr(part, "content_type", "") or "").lower()
                 ext = ".png"
                 if "jpeg" in content_type or "jpg" in content_type:
@@ -16712,6 +16707,12 @@ def _seed_docx_text_va_tai_nguyen(raw_bytes, ten_file, media_dir, safe_stem):
                 add_resource({
                     "loai": "anh",
                     "duong_dan": img_path,
+                    # Lưu thêm bản base64 vào JSON/Supabase để app HS không phụ
+                    # thuộc đường dẫn local của app GV.
+                    "du_lieu_base64": base64.b64encode(blob).decode("ascii"),
+                    "mime_type": content_type or (
+                        "image/jpeg" if ext == ".jpg" else f"image/{ext.lstrip('.')}"
+                    ),
                     "nguon": ten_file,
                     "mo_ta": "Ảnh/sơ đồ/biểu đồ trích nguyên từ file hạt giống",
                 })
@@ -16846,9 +16847,10 @@ def _seed_hien_thi_tai_nguyen(seed):
     if not resources:
         data = seed.get("du_lieu_truc_quan", {}) or {}
         if data:
-            path = str(data.get("duong_dan_anh", "") or "").strip()
-            if path and os.path.exists(path):
-                st.image(path, width=SEED_IMAGE_DISPLAY_WIDTH)
+            _hien_thi_anh_tu_resource(
+                data,
+                width=SEED_IMAGE_DISPLAY_WIDTH
+            )
             rows = list(data.get("du_lieu", []) or [])
             cols = list(data.get("cot", []) or [])
             if rows or cols:
@@ -16865,9 +16867,10 @@ def _seed_hien_thi_tai_nguyen(seed):
     for res in resources:
         loai = str(res.get("loai", "") or "").strip()
         if loai == "anh":
-            path = str(res.get("duong_dan", "") or "").strip()
-            if path and os.path.exists(path):
-                st.image(path, width=SEED_IMAGE_DISPLAY_WIDTH)
+            _hien_thi_anh_tu_resource(
+                res,
+                width=SEED_IMAGE_DISPLAY_WIDTH
+            )
         elif loai == "bang":
             rows = [list(r) for r in (res.get("du_lieu") or [])]
             if not rows:
@@ -18759,9 +18762,10 @@ def hien_thi_du_lieu_truc_quan_cau(q):
     tieu_de = str(data.get("tieu_de", "")).strip()
     if tieu_de:
         st.markdown(f"**📊 {tieu_de}**")
-    duong_dan_anh = str(data.get("duong_dan_anh", "")).strip()
-    if duong_dan_anh and os.path.exists(duong_dan_anh):
-        st.image(duong_dan_anh, width=GRAD_IMAGE_DISPLAY_WIDTH)
+    if _hien_thi_anh_tu_resource(
+        data,
+        width=GRAD_IMAGE_DISPLAY_WIDTH
+    ):
         return
     cot = data.get("cot", []) or []
     rows = data.get("du_lieu", []) or []
@@ -21571,9 +21575,10 @@ def hien_thi_tai_nguyen_cau_tot_nghiep(q):
 
     for res in resources:
         if res.get("loai") == "anh":
-            path = str(res.get("duong_dan", ""))
-            if path and os.path.exists(path):
-                st.image(path, width=GRAD_IMAGE_DISPLAY_WIDTH)
+            _hien_thi_anh_tu_resource(
+                res,
+                width=GRAD_IMAGE_DISPLAY_WIDTH
+            )
         elif res.get("loai") == "bang":
             rows = res.get("du_lieu") or []
             if rows:
@@ -26343,7 +26348,7 @@ def hoc_sinh():
                 )
             )
 
-            if q.get("tai_nguyen_truc_quan"):
+            if q.get("tai_nguyen_truc_quan") or q.get("du_lieu_truc_quan"):
                 hien_thi_tai_nguyen_cau_tot_nghiep(q)
 
             if dang == "Trắc nghiệm 4 lựa chọn":
