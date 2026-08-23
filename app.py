@@ -414,6 +414,211 @@ def _luu_attempts_shared(ds):
     return cloud_ok or local_ok
 
 
+def _attempt_to_row(lan):
+    """Chuyển 1 lượt làm sang đúng cấu trúc bảng student_attempts."""
+    if not isinstance(lan, dict):
+        return None, None
+
+    sid = str(
+        lan.get("hoc_sinh_id")
+        or lan.get("ma_hoc_sinh")
+        or ""
+    ).strip()
+    if not sid:
+        return None, None
+
+    lan2 = dict(lan)
+    row_id = _attempt_uuid(lan2.get("id"), lan2)
+    lan2["id"] = row_id
+
+    pham_vi = lan2.get("pham_vi", {}) or {}
+    if not isinstance(pham_vi, dict):
+        pham_vi = {}
+
+    submitted_at = str(
+        lan2.get("nop_bai_iso")
+        or lan2.get("thoi_gian_iso")
+        or datetime.now(timezone.utc).isoformat()
+    ).strip()
+
+    try:
+        score = lan2.get("diem_chinh_thuc", lan2.get("diem"))
+        score = float(score) if score is not None else None
+    except Exception:
+        score = None
+
+    try:
+        score_scale = lan2.get("thang_diem", 10)
+        score_scale = float(score_scale) if score_scale is not None else None
+    except Exception:
+        score_scale = None
+
+    row = {
+        "id": row_id,
+        "student_id": sid,
+        "class_name": str(
+            lan2.get("lop") or pham_vi.get("lop") or ""
+        ).strip(),
+        "mode": str(lan2.get("che_do", "") or "").strip(),
+        "exam_id": str(
+            pham_vi.get("de_id") or pham_vi.get("mau_id") or ""
+        ).strip() or None,
+        "test_session_id": str(
+            pham_vi.get("dot_kiem_tra_id") or ""
+        ).strip() or None,
+        "submitted_at": submitted_at,
+        "score": score,
+        "score_scale": score_scale,
+        "data": lan2,
+    }
+    return row, lan2
+
+
+def _xoa_cache_attempts():
+    """Xóa các cache lịch sử sau khi có lượt làm mới."""
+    for fn_name in [
+        "_doc_attempts_shared",
+        "_doc_attempts_for_student_shared",
+        "tao_ho_so_tu_lich_su",
+        "tinh_bang_xep_hang_lop",
+    ]:
+        fn = globals().get(fn_name)
+        try:
+            if fn is not None and hasattr(fn, "clear"):
+                fn.clear()
+        except Exception:
+            pass
+
+
+def _luu_mot_attempt_shared(lan):
+    """
+    Lưu đúng MỘT lượt làm mới.
+
+    Trên Supabase: chỉ upsert 1 row, không đọc/ghi lại toàn bộ lịch sử.
+    JSON local chỉ dùng khi không có Supabase hoặc Supabase lỗi, để tránh
+    nhiều học sinh cùng ghi một file local trên server.
+    """
+    row, lan2 = _attempt_to_row(lan)
+    if row is None:
+        return False
+
+    client_sb = _supabase_client()
+
+    if client_sb is not None:
+        try:
+            client_sb.table("student_attempts").upsert(
+                row,
+                on_conflict="id"
+            ).execute()
+            _xoa_cache_attempts()
+            return True
+        except Exception:
+            # Nếu cloud lỗi thì mới dùng JSON local làm phương án dự phòng.
+            pass
+
+    try:
+        data = _doc_json_local(HS_HISTORY_PATH, [])
+        if not isinstance(data, list):
+            data = []
+
+        row_id = str(lan2.get("id", "") or "").strip()
+        da_co = False
+        for i, old in enumerate(data):
+            if str((old or {}).get("id", "") or "").strip() == row_id:
+                data[i] = lan2
+                da_co = True
+                break
+
+        if not da_co:
+            data.append(lan2)
+
+        ok = _luu_json_local(HS_HISTORY_PATH, data)
+        _xoa_cache_attempts()
+        return ok
+    except Exception:
+        return False
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _doc_attempts_for_student_shared(hoc_sinh_id):
+    """Đọc lịch sử của đúng 1 học sinh; tránh tải lịch sử toàn hệ thống."""
+    sid = str(hoc_sinh_id or "").strip()
+    if not sid:
+        return []
+
+    client_sb = _supabase_client()
+    if client_sb is not None:
+        try:
+            res = (
+                client_sb.table("student_attempts")
+                .select("id,submitted_at,data")
+                .eq("student_id", sid)
+                .order("submitted_at")
+                .execute()
+            )
+            rows = getattr(res, "data", None) or []
+            ds = []
+            for row in rows:
+                item = dict(row.get("data") or {})
+                if not str(item.get("id", "")).strip():
+                    item["id"] = str(row.get("id", "") or "").strip()
+                if not str(item.get("thoi_gian_iso", "")).strip():
+                    item["thoi_gian_iso"] = str(
+                        row.get("submitted_at", "") or ""
+                    ).strip()
+                ds.append(item)
+            return ds
+        except Exception:
+            pass
+
+    # Fallback local/cache toàn bộ khi Supabase không dùng được.
+    sid_norm = chuan_hoa_ma_hoc_sinh(sid) if "chuan_hoa_ma_hoc_sinh" in globals() else sid
+    return [
+        x for x in _doc_attempts_shared()
+        if (
+            chuan_hoa_ma_hoc_sinh(x.get("hoc_sinh_id", ""))
+            if "chuan_hoa_ma_hoc_sinh" in globals()
+            else str(x.get("hoc_sinh_id", "") or "").strip()
+        ) == sid_norm
+    ]
+
+
+def _tim_luot_kiem_tra_da_nop_shared(hoc_sinh_id, dot_id):
+    """Tìm 1 lượt kiểm tra chính thức bằng truy vấn Supabase có điều kiện."""
+    sid = str(hoc_sinh_id or "").strip()
+    dot_id = str(dot_id or "").strip()
+    if not sid or not dot_id:
+        return None
+
+    client_sb = _supabase_client()
+    if client_sb is not None:
+        try:
+            res = (
+                client_sb.table("student_attempts")
+                .select("id,submitted_at,data")
+                .eq("student_id", sid)
+                .eq("test_session_id", dot_id)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(res, "data", None) or []
+            if rows:
+                row = rows[0]
+                item = dict(row.get("data") or {})
+                if not str(item.get("id", "")).strip():
+                    item["id"] = str(row.get("id", "") or "").strip()
+                return item
+        except Exception:
+            pass
+
+    # Fallback chỉ trên lịch sử của học sinh, không phải toàn trường.
+    for lan in reversed(_doc_attempts_for_student_shared(sid)):
+        pham_vi = lan.get("pham_vi", {}) or {}
+        if str(pham_vi.get("dot_kiem_tra_id", "")).strip() == dot_id:
+            return lan
+    return None
+
+
 # Ảnh/sơ đồ của đề thật: hiển thị vừa đủ để đọc, không kéo tràn toàn bộ màn hình.
 GRAD_IMAGE_DISPLAY_WIDTH = 620
 # Ảnh hạt giống dùng kích thước hiển thị tương tự, nhưng lưu/đọc độc lập.
@@ -11566,17 +11771,11 @@ def dot_kiem_tra_phu_hop_hoc_sinh(dot, hs_lop, hs_khoi=""):
 
 
 def tim_luot_kiem_tra_da_nop(hoc_sinh_id, dot_id):
-    ma = str(hoc_sinh_id or "").strip().upper()
-    dot_id = str(dot_id or "").strip()
-    if not ma or not dot_id:
-        return None
-    for lan in reversed(doc_lich_su_hoc_sinh()):
-        if str(lan.get("hoc_sinh_id", "")).strip().upper() != ma:
-            continue
-        pham_vi = lan.get("pham_vi", {}) or {}
-        if str(pham_vi.get("dot_kiem_tra_id", "")).strip() == dot_id:
-            return lan
-    return None
+    # V2: truy vấn đúng HS + đúng đợt kiểm tra thay vì đọc toàn bộ lịch sử.
+    return _tim_luot_kiem_tra_da_nop_shared(
+        hoc_sinh_id,
+        dot_id
+    )
 
 
 def seed_dot_kiem_tra_hoc_sinh(dot, hoc_sinh_id):
@@ -23740,20 +23939,21 @@ def doc_lich_su_hoc_sinh():
 
 
 def luu_lich_su_hoc_sinh(ds):
+    # Giữ hàm cũ để tương thích các chức năng/quy trình cũ.
     return _luu_attempts_shared(ds)
 
 
+def luu_mot_luot_lam_hoc_sinh(lan):
+    # Luồng nộp bài mới dùng hàm này để chỉ ghi đúng 1 lượt.
+    return _luu_mot_attempt_shared(lan)
+
+
 def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
-    hid = chuan_hoa_ma_hoc_sinh(
-        hoc_sinh_id
+    # V2: chỉ truy vấn lịch sử của chính học sinh này.
+    # Không tải toàn bộ student_attempts rồi mới lọc ở Python.
+    return _doc_attempts_for_student_shared(
+        str(hoc_sinh_id or "").strip()
     )
-    return [
-        x
-        for x in doc_lich_su_hoc_sinh()
-        if chuan_hoa_ma_hoc_sinh(
-            x.get("hoc_sinh_id", "")
-        ) == hid
-    ]
 
 
 def khoa_nang_luc(yccd, muc_do, nang_luc, chi_bao=""):
@@ -27367,22 +27567,17 @@ def hoc_sinh():
             if existing_kiem_tra:
                 ban_ghi = existing_kiem_tra
             else:
-                ds_ls = doc_lich_su_hoc_sinh()
-                ds_ls.append(
+                # V2: chỉ ghi đúng lượt vừa nộp.
+                # Không đọc toàn bộ lịch sử rồi upsert lại tất cả các lượt cũ.
+                da_luu = luu_mot_luot_lam_hoc_sinh(
                     ban_ghi
                 )
-                luu_lich_su_hoc_sinh(
-                    ds_ls
-                )
-                # Kết quả vừa thay đổi: buộc hồ sơ/xếp hạng tính lại ở lần kế tiếp.
-                try:
-                    tao_ho_so_tu_lich_su.clear()
-                except Exception:
-                    pass
-                try:
-                    tinh_bang_xep_hang_lop.clear()
-                except Exception:
-                    pass
+                if not da_luu:
+                    st.error(
+                        "Không lưu được kết quả bài làm. "
+                        "Vui lòng giữ nguyên trang và thử nộp lại."
+                    )
+                    st.stop()
 
             st.session_state.hs_ban_ghi_hien_tai = (
                 ban_ghi
