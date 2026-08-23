@@ -14744,13 +14744,17 @@ def lay_xep_hang_ca_nhan_hs(ma_hoc_sinh, lop):
     return None
 
 
-def hien_thi_xep_hang_ca_nhan_hs(ma_hoc_sinh, lop):
-    """Chỉ hiển thị thứ hạng của chính HS, không lộ tên/điểm của bạn khác."""
-    row = lay_xep_hang_ca_nhan_hs(ma_hoc_sinh, lop)
+def hien_thi_xep_hang_ca_nhan_hs(ma_hoc_sinh, lop, row=None, tai_du_lieu=False):
+    """
+    CHỈ RENDER xếp hạng đã được tải bằng thao tác bấm của học sinh.
+
+    Hàm hiển thị này tuyệt đối không tự gọi dữ liệu lớp. Tham số
+    `tai_du_lieu` được giữ lại để tương thích chữ ký cũ nhưng bị vô hiệu hóa.
+    Mọi truy vấn xếp hạng phải nằm trực tiếp trong nhánh st.button(...).
+    """
     if not row:
         return
 
-    st.markdown("### 🏆 Xếp hạng của em")
     c1, c2, c3 = st.columns(3)
 
     with c1:
@@ -24776,11 +24780,14 @@ def rut_cau_goi_y_hom_nay(
     return ket_qua
 
 
-def hien_thi_ke_hoach_hom_nay(profile, bank):
-    goi_y_all = goi_y_hoc_tap_hom_nay(profile, bank, 10)
+def hien_thi_ke_hoach_hom_nay(profile, bank, goi_y_all=None, hien_tieu_de=True):
+    # Cho phép caller truyền danh sách đã lazy-load/cache để tránh quét ngân hàng lại.
+    if goi_y_all is None:
+        goi_y_all = goi_y_hoc_tap_hom_nay(profile, bank, 10)
 
-    st.markdown("---")
-    st.markdown("## 🎯 HÔM NAY EM NÊN LUYỆN GÌ?")
+    if hien_tieu_de:
+        st.markdown("---")
+        st.markdown("## 🎯 HÔM NAY EM NÊN LUYỆN GÌ?")
 
     if not profile.get("tong_don_vi", 0):
         st.info(
@@ -25159,6 +25166,16 @@ def hoc_sinh():
         "hs_logged_in_info": None,
         # Sau đăng nhập hiển thị trang chào nhanh; chỉ tải dữ liệu nặng khi HS bấm Vào học.
         "hs_portal_open": False,
+        # Lazy-load: xếp hạng chỉ đọc dữ liệu lớp khi HS bấm xem.
+        "hs_xep_hang_cache_key": "",
+        "hs_xep_hang_cache": None,
+        # Cờ này mới là điều kiện hiển thị/xử lý xếp hạng.
+        # Không được suy ra "đã xem" chỉ vì session còn cache cũ.
+        "hs_xep_hang_da_xem": False,
+        # Lazy-load: danh sách 10 YCCĐ gợi ý chỉ quét đầy đủ khi HS bấm xem/tải.
+        "hs_goi_y_cache_key": "",
+        "hs_goi_y_cache": None,
+        "hs_goi_y_da_xem_them": False,
     }
 
     for key, value in defaults.items():
@@ -25227,6 +25244,12 @@ def hoc_sinh():
         st.session_state["hs_logged_in_id"] = hs_id_chuan
         st.session_state["hs_logged_in_info"] = dict(hs_info)
         st.session_state["hs_portal_open"] = False
+        st.session_state["hs_xep_hang_cache_key"] = ""
+        st.session_state["hs_xep_hang_cache"] = None
+        st.session_state["hs_xep_hang_da_xem"] = False
+        st.session_state["hs_goi_y_cache_key"] = ""
+        st.session_state["hs_goi_y_cache"] = None
+        st.session_state["hs_goi_y_da_xem_them"] = False
         st.rerun()
 
     # Từ đây dùng hồ sơ đã giữ trong session — không query lại khi HS bấm widget.
@@ -25260,6 +25283,12 @@ def hoc_sinh():
             st.session_state["hs_logged_in_id"] = ""
             st.session_state["hs_portal_open"] = False
             st.session_state["hs_id"] = ""
+            st.session_state["hs_xep_hang_cache_key"] = ""
+            st.session_state["hs_xep_hang_cache"] = None
+            st.session_state["hs_xep_hang_da_xem"] = False
+            st.session_state["hs_goi_y_cache_key"] = ""
+            st.session_state["hs_goi_y_cache"] = None
+            st.session_state["hs_goi_y_da_xem_them"] = False
             st.session_state.pop("hs_login_input", None)
             st.rerun()
 
@@ -25273,6 +25302,15 @@ def hoc_sinh():
                 use_container_width=True,
                 key="hs_open_portal_fast",
             ):
+                # Mỗi lần vào khu học tập phải bắt đầu ở trạng thái CHƯA XEM
+                # xếp hạng / danh sách luyện thêm. Tuyệt đối không dùng cache cũ
+                # để tự hiện dữ liệu khi HS chưa bấm nút tương ứng.
+                st.session_state["hs_xep_hang_cache_key"] = ""
+                st.session_state["hs_xep_hang_cache"] = None
+                st.session_state["hs_xep_hang_da_xem"] = False
+                st.session_state["hs_goi_y_cache_key"] = ""
+                st.session_state["hs_goi_y_cache"] = None
+                st.session_state["hs_goi_y_da_xem_them"] = False
                 st.session_state["hs_portal_open"] = True
                 st.rerun()
         st.caption("⚡ Đăng nhập đã hoàn tất. Dữ liệu học tập chỉ được tải khi em bấm **VÀO HỌC**.")
@@ -25291,14 +25329,9 @@ def hoc_sinh():
     # Ngân hàng dùng cho học sinh là NGÂN HÀNG CHUNG:
     # gồm câu ôn tập/kiểm tra và câu được xây dựng cho tốt nghiệp THPT.
     # Mặc định mọi câu đã duyệt đều được dùng luyện HS, trừ khi GV tắt cờ này.
-    # Tải mỗi kho đúng 1 lần trong một lượt rerun của HS.
-    # Kho ôn tập ưu tiên questions_v2 (nhanh), vẫn tự fallback kho cũ nếu V2 lỗi/thiếu.
-    bank_on_tap_hs = doc_ngan_hang_hs_fast()
-    bank_tot_nghiep_hs = doc_ngan_hang_tot_nghiep_thuc_te()
-
     bank = [
         q
-        for q in (bank_on_tap_hs + bank_tot_nghiep_hs)
+        for q in (doc_ngan_hang_hs_fast() + doc_ngan_hang_tot_nghiep_thuc_te())
         if (
             q.get(
                 "trang_thai",
@@ -25320,33 +25353,151 @@ def hoc_sinh():
     if st.session_state.get("_hs_fast_bank_source") == "questions_v2":
         st.caption("⚡ Chế độ HS nhanh: ngân hàng câu hỏi V2 đã sẵn sàng.")
 
-    # Xếp hạng cá nhân chỉ hiện ở màn hình đầu; HS không xem danh sách bạn khác.
+    # ======================================================
+    # XẾP HẠNG CÁ NHÂN — LAZY LOAD NGHIÊM NGẶT
+    # TUYỆT ĐỐI không gọi dữ liệu lớp nếu HS chưa bấm nút xem.
+    # Cache chỉ được dùng sau khi cờ hs_xep_hang_da_xem=True.
+    # ======================================================
+    hs_cache_key = f"{hs_id_chuan}|||{hs_lop}"
+
     if (
         not st.session_state.hs_dang_lam
         and not st.session_state.hs_da_nop
     ):
-        hien_thi_xep_hang_ca_nhan_hs(
-            hs_id_chuan,
-            hs_lop
+        st.markdown("---")
+        st.markdown("### 🏆 Xếp hạng của em")
+
+        da_xem_xep_hang = bool(
+            st.session_state.get("hs_xep_hang_da_xem", False)
+        )
+        cache_dung_hs = (
+            st.session_state.get("hs_xep_hang_cache_key", "") == hs_cache_key
         )
 
+        nhan_nut_xh = (
+            "🔄 CẬP NHẬT XẾP HẠNG"
+            if da_xem_xep_hang and cache_dung_hs
+            else "🏆 XEM XẾP HẠNG CỦA EM"
+        )
+
+        # CHỈ bên trong nhánh button này mới được phép gọi hàm xếp hạng.
+        if st.button(
+            nhan_nut_xh,
+            use_container_width=True,
+            key="hs_lazy_load_ranking",
+        ):
+            with st.spinner("Đang lấy xếp hạng của em..."):
+                st.session_state["hs_xep_hang_cache"] = lay_xep_hang_ca_nhan_hs(
+                    hs_id_chuan,
+                    hs_lop,
+                )
+                st.session_state["hs_xep_hang_cache_key"] = hs_cache_key
+                st.session_state["hs_xep_hang_da_xem"] = True
+            da_xem_xep_hang = True
+            cache_dung_hs = True
+
+        if da_xem_xep_hang and cache_dung_hs:
+            row_xh = st.session_state.get("hs_xep_hang_cache")
+            if row_xh:
+                # Chỉ render dữ liệu đã cache; không gọi lại dữ liệu lớp.
+                hien_thi_xep_hang_ca_nhan_hs(
+                    hs_id_chuan,
+                    hs_lop,
+                    row=row_xh,
+                    tai_du_lieu=False,
+                )
+            else:
+                st.info("Em chưa có đủ dữ liệu để xếp hạng trong lớp.")
+        else:
+            st.caption(
+                "⚡ Chưa tải dữ liệu xếp hạng. Chỉ khi em bấm **XEM XẾP HẠNG CỦA EM** hệ thống mới đọc dữ liệu lớp."
+            )
+
     # ======================================================
-    # DASHBOARD CÁ NHÂN - CHỈ HIỆN Ở MÀN HÌNH ĐẦU
+    # DASHBOARD CÁ NHÂN — GỢI Ý HÔM NAY LAZY LOAD
+    # Chỉ tính 1 ưu tiên đầu để hiển thị nhanh. 9 mục còn lại chỉ được
+    # quét/tải khi HS bấm xem thêm; danh sách đầy đủ được cache trong session.
     # ======================================================
-    hs_goi_y_hom_nay = goi_y_hoc_tap_hom_nay(
-        profile,
-        bank,
-        3
-    )
+    hs_goi_y_hom_nay = []
 
     if (
         not st.session_state.hs_dang_lam
         and not st.session_state.hs_da_nop
     ):
-        hs_goi_y_hom_nay = hien_thi_ke_hoach_hom_nay(
+        goi_y_dau = goi_y_hoc_tap_hom_nay(
             profile,
-            bank
+            bank,
+            1,
         )
+
+        st.markdown("---")
+        st.markdown("## 🎯 HÔM NAY EM NÊN LUYỆN GÌ?")
+
+        goi_y_cache_key = hs_cache_key
+        da_tai_goi_y_day_du = (
+            bool(st.session_state.get("hs_goi_y_da_xem_them", False))
+            and st.session_state.get("hs_goi_y_cache_key", "") == goi_y_cache_key
+            and st.session_state.get("hs_goi_y_cache") is not None
+        )
+
+        if goi_y_dau:
+            # Hiển thị ưu tiên đầu ngay; phần 9 mục còn lại chưa quét.
+            hien_thi_ke_hoach_hom_nay(
+                profile,
+                bank,
+                goi_y_all=goi_y_dau,
+                hien_tieu_de=False,
+            )
+
+            if st.button(
+                "📚 XEM THÊM CÁC NỘI DUNG CẦN LUYỆN",
+                use_container_width=True,
+                key="hs_lazy_load_more_targets",
+            ):
+                with st.spinner("Đang lấy thêm nội dung cần luyện..."):
+                    st.session_state["hs_goi_y_cache"] = goi_y_hoc_tap_hom_nay(
+                        profile,
+                        bank,
+                        10,
+                    )
+                    st.session_state["hs_goi_y_cache_key"] = goi_y_cache_key
+                    st.session_state["hs_goi_y_da_xem_them"] = True
+                da_tai_goi_y_day_du = True
+
+            if da_tai_goi_y_day_du:
+                hs_goi_y_hom_nay = list(
+                    st.session_state.get("hs_goi_y_cache") or []
+                )
+                con_lai_lazy = hs_goi_y_hom_nay[1:]
+                if con_lai_lazy:
+                    with st.expander(
+                        f"📚 {len(con_lai_lazy)} nội dung cần luyện thêm",
+                        expanded=False,
+                    ):
+                        for j, x in enumerate(con_lai_lazy, start=2):
+                            st.markdown(f"**{j}. {x.get('yccd', '')}**")
+                            st.caption(
+                                f"{x.get('nang_luc', '')} • "
+                                f"{x.get('muc_do', '')} • "
+                                f"{x.get('ti_le_dung', 0) * 100:.0f}% đúng"
+                            )
+                            cb = str(x.get("chi_bao", "")).strip()
+                            if cb and cb not in ["Chưa gắn chỉ báo", "Chưa xác định"]:
+                                st.caption(f"Chỉ báo/kĩ năng: {cb}")
+                            st.markdown("---")
+                else:
+                    st.caption("Hiện chưa có thêm nội dung yếu rõ ràng.")
+            else:
+                hs_goi_y_hom_nay = list(goi_y_dau)
+                st.caption("⚡ Các nội dung cần luyện thêm chỉ được tải khi em bấm xem.")
+        else:
+            # Giữ đúng thông báo cũ khi chưa có dữ liệu cá nhân.
+            hien_thi_ke_hoach_hom_nay(
+                profile,
+                bank,
+                goi_y_all=[],
+                hien_tieu_de=False,
+            )
 
     # ======================================================
     # CHỌN CHẾ ĐỘ LUYỆN
@@ -25393,26 +25544,58 @@ def hoc_sinh():
         # LUYỆN THEO GỢI Ý HÔM NAY
         # --------------------------------------------------
         if che_do == "🎯 Luyện theo gợi ý hôm nay":
-            if not hs_goi_y_hom_nay:
-                st.info(
-                    "Chưa có mục tiêu cá nhân đủ dữ liệu. "
-                    "Hãy làm một lượt ôn theo bài/chương trước."
+            # Không tự quét đủ 10 mục tiêu chỉ vì radio mặc định đang ở chế độ này.
+            # HS phải bấm tải gợi ý; đây cũng là điểm lazy-load cho 9 mục còn lại.
+            da_tai_goi_y_day_du = (
+                st.session_state.get("hs_goi_y_cache_key", "") == hs_cache_key
+                and st.session_state.get("hs_goi_y_cache") is not None
+            )
+
+            if not da_tai_goi_y_day_du:
+                if st.button(
+                    "🎯 TẢI GỢI Ý ĐỂ BẮT ĐẦU LUYỆN",
+                    type="primary",
+                    use_container_width=True,
+                    key="hs_load_targets_for_practice",
+                ):
+                    with st.spinner("Đang chuẩn bị gợi ý luyện tập..."):
+                        st.session_state["hs_goi_y_cache"] = goi_y_hoc_tap_hom_nay(
+                            profile,
+                            bank,
+                            10,
+                        )
+                        st.session_state["hs_goi_y_cache_key"] = hs_cache_key
+                    st.rerun()
+
+                st.caption(
+                    "⚡ Danh sách đầy đủ các nội dung cần luyện chỉ được tải khi em bấm nút trên."
                 )
                 pool = []
             else:
-                st.info(
-                    "🎯 App sẽ tự tạo **một lượt luyện gồm nhiều câu hỏi**, "
-                    "ưu tiên nhiều hơn cho phần yếu nhất. Các **Ưu tiên 1 → 2 → 3…** "
-                    "được phối hợp trong cùng lượt; sau mỗi lượt, thứ tự và tỷ trọng "
-                    "sẽ được tính lại tự động."
+                hs_goi_y_hom_nay = list(
+                    st.session_state.get("hs_goi_y_cache") or []
                 )
 
-                # Pool chung của nhiều ưu tiên, không còn khóa vào riêng Ưu tiên 1.
-                pool = tao_pool_luyen_goi_y_hom_nay(
-                    profile,
-                    bank,
-                    hs_goi_y_hom_nay
-                )
+                if not hs_goi_y_hom_nay:
+                    st.info(
+                        "Chưa có mục tiêu cá nhân đủ dữ liệu. "
+                        "Hãy làm một lượt ôn theo bài/chương trước."
+                    )
+                    pool = []
+                else:
+                    st.info(
+                        "🎯 App sẽ tự tạo **một lượt luyện gồm nhiều câu hỏi**, "
+                        "ưu tiên nhiều hơn cho phần yếu nhất. Các **Ưu tiên 1 → 2 → 3…** "
+                        "được phối hợp trong cùng lượt; sau mỗi lượt, thứ tự và tỷ trọng "
+                        "sẽ được tính lại tự động."
+                    )
+
+                    # Pool chung của nhiều ưu tiên, không còn khóa vào riêng Ưu tiên 1.
+                    pool = tao_pool_luyen_goi_y_hom_nay(
+                        profile,
+                        bank,
+                        hs_goi_y_hom_nay
+                    )
 
                 # Luôn giữ thanh chọn số câu. Nếu Ưu tiên 1 thiếu câu,
                 # app tự bù từ Ưu tiên 2, 3, 4... trong chính pool này.
@@ -26054,10 +26237,32 @@ def hoc_sinh():
                     for x in lich_su_hs
                 ) / len(lich_su_hs)
 
-                xh_ca_nhan = lay_xep_hang_ca_nhan_hs(
-                    hs_id_chuan,
-                    hs_lop
+                # Lịch sử cá nhân KHÔNG được tự gọi xếp hạng lớp.
+                # Nếu HS đã bấm xem xếp hạng trước đó thì chỉ dùng cache.
+                # Nếu chưa bấm, hạng để "—" và cho một nút tải riêng.
+                xh_ca_nhan = None
+                cache_xh_hop_le = (
+                    bool(st.session_state.get("hs_xep_hang_da_xem", False))
+                    and st.session_state.get("hs_xep_hang_cache_key", "") == hs_cache_key
                 )
+                if cache_xh_hop_le:
+                    xh_ca_nhan = st.session_state.get("hs_xep_hang_cache")
+
+                if not cache_xh_hop_le:
+                    if st.button(
+                        "🏆 XEM XẾP HẠNG TRONG LỊCH SỬ",
+                        use_container_width=True,
+                        key="hs_lazy_load_ranking_history",
+                    ):
+                        with st.spinner("Đang lấy xếp hạng của em..."):
+                            st.session_state["hs_xep_hang_cache"] = lay_xep_hang_ca_nhan_hs(
+                                hs_id_chuan,
+                                hs_lop,
+                            )
+                            st.session_state["hs_xep_hang_cache_key"] = hs_cache_key
+                            st.session_state["hs_xep_hang_da_xem"] = True
+                        xh_ca_nhan = st.session_state.get("hs_xep_hang_cache")
+                        cache_xh_hop_le = True
 
                 p1, p2, p3, p4 = st.columns(4)
 
@@ -26159,14 +26364,12 @@ def hoc_sinh():
         # LUYỆN TỐT NGHIỆP
         # --------------------------------------------------
         else:
-            # Dùng lại dữ liệu đã tải ở trên: không đọc lại kho lần thứ hai.
-            # Phần ôn tập của HS vẫn đi qua questions_v2 nhanh.
             pool12 = [
-                q for q in bank_tot_nghiep_hs
+                q for q in doc_ngan_hang_tot_nghiep_thuc_te()
                 if cau_tot_nghiep_du_dieu_kien_su_dung(q)
             ]
             pool_on_tap_12 = [
-                q for q in bank_on_tap_hs
+                q for q in doc_ngan_hang()
                 if cau_on_tap_bo_sung_du_dieu_kien_tot_nghiep(q)
             ]
 
@@ -26468,65 +26671,6 @@ def hoc_sinh():
                 height=75
             )
 
-        # Theo dõi nhanh số câu đã có thao tác trả lời.
-        da_tra_loi = 0
-
-        for idx_q, q_check in enumerate(
-            de_thi,
-            start=1
-        ):
-            dang_check = q_check.get(
-                "dang_cau",
-                ""
-            )
-
-            if dang_check == "Đúng / Sai":
-                co_tra_loi = any(
-                    str(
-                        st.session_state.get(
-                            f"hs_answer_{idx_q}_{j}",
-                            ""
-                        )
-                    ).strip()
-                    for j in range(
-                        1,
-                        5
-                    )
-                )
-            elif dang_check == "Trả lời ngắn":
-                co_tra_loi = bool(
-                    str(
-                        st.session_state.get(
-                            f"hs_short_answer_{idx_q}",
-                            ""
-                        )
-                    ).strip()
-                )
-            else:
-                co_tra_loi = bool(
-                    str(
-                        st.session_state.get(
-                            f"hs_answer_{idx_q}",
-                            ""
-                        )
-                    ).strip()
-                )
-
-            if co_tra_loi:
-                da_tra_loi += 1
-
-        st.progress(
-            (
-                da_tra_loi / len(de_thi)
-                if de_thi
-                else 0
-            )
-        )
-
-        st.caption(
-            f"Đã trả lời **{da_tra_loi}/{len(de_thi)} câu**"
-        )
-
         for i, q in enumerate(
             de_thi,
             start=1
@@ -26625,19 +26769,54 @@ def hoc_sinh():
 
             st.divider()
 
-        con_trong = max(
-            0,
-            len(de_thi) - da_tra_loi
-        )
+        # Chỉ đếm ở CUỐI bài và đếm theo câu đã trả lời ĐẦY ĐỦ.
+        # Đúng/Sai chỉ được tính là đã làm khi đủ cả 4 ý a–d.
+        so_cau_chua_lam = 0
 
-        if con_trong:
-            st.warning(
-                f"Em còn **{con_trong} câu** chưa trả lời đầy đủ."
-            )
-        else:
-            st.success(
-                "✅ Em đã trả lời tất cả các câu."
-            )
+        for idx_q, q_check in enumerate(de_thi, start=1):
+            dang_check = q_check.get("dang_cau", "")
+
+            if dang_check == "Đúng / Sai":
+                meta_check = list(q_check.get("nhan_dinh_meta", []) or [])
+                da_lam_day_du = (
+                    len(meta_check) == 4
+                    and all(
+                        bool(
+                            str(
+                                st.session_state.get(
+                                    f"hs_answer_{idx_q}_{j}",
+                                    ""
+                                )
+                            ).strip()
+                        )
+                        for j in range(1, 5)
+                    )
+                )
+            elif dang_check == "Trả lời ngắn":
+                da_lam_day_du = bool(
+                    str(
+                        st.session_state.get(
+                            f"hs_short_answer_{idx_q}",
+                            ""
+                        )
+                    ).strip()
+                )
+            else:
+                da_lam_day_du = bool(
+                    str(
+                        st.session_state.get(
+                            f"hs_answer_{idx_q}",
+                            ""
+                        )
+                    ).strip()
+                )
+
+            if not da_lam_day_du:
+                so_cau_chua_lam += 1
+
+        st.info(
+            f"📌 Số câu em chưa làm: **{so_cau_chua_lam}**"
+        )
 
         if st.button(
             "✅ NỘP BÀI",
@@ -27037,6 +27216,14 @@ def hoc_sinh():
                 else:
                     st.session_state.hs_ban_ghi_hien_tai = ban_ghi
                     st.session_state.hs_da_luu_ket_qua = True
+                    # Kết quả mới làm thay đổi cả gợi ý và xếp hạng.
+                    # Xóa cache để lần HS chủ động bấm xem tiếp theo lấy dữ liệu mới.
+                    st.session_state["hs_xep_hang_cache_key"] = ""
+                    st.session_state["hs_xep_hang_cache"] = None
+                    st.session_state["hs_xep_hang_da_xem"] = False
+                    st.session_state["hs_goi_y_cache_key"] = ""
+                    st.session_state["hs_goi_y_cache"] = None
+                    st.session_state["hs_goi_y_da_xem_them"] = False
 
             if existing_kiem_tra:
                 st.session_state.hs_ban_ghi_hien_tai = ban_ghi
