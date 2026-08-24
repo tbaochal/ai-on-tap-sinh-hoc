@@ -11323,6 +11323,7 @@ def ket_qua_hoc_sinh():
         key="gv_result_student"
     )
 
+    ds = doc_lich_su_hoc_sinh()
     lich_su = [
         x
         for x in ds
