@@ -21125,14 +21125,13 @@ def gan_phan_loai_on_tap_cho_cau_tot_nghiep(q, force=False):
     return q2
 
 
-def _grad_nhung_base64_anh_cau_tot_nghiep(q):
+def _grad_ben_vung_hoa_anh_cau(q):
     """
-    Nâng cấp ảnh Ngân hàng tốt nghiệp từ path local sang dữ liệu nhúng.
+    Nâng cấp ảnh của câu tốt nghiệp cũ sang dạng bền vững.
 
-    - Không đổi nội dung câu hỏi/đáp án/metadata.
-    - Nếu câu cũ còn file ảnh local thì tự nhúng base64 và lần đọc ngân hàng
-      sẽ lưu ngược lại vào kho dùng chung.
-    - Nếu đã có base64 thì giữ nguyên.
+    Nếu câu chỉ còn `duong_dan` local nhưng file vẫn tồn tại trên app GV,
+    đọc file và nhúng thêm base64. Dữ liệu này sau đó được ghi lại vào
+    document dùng chung/Supabase, để app HS ở deployment khác vẫn hiển thị được.
     """
     q2 = dict(q or {})
     resources = [dict(x) for x in (q2.get("tai_nguyen_truc_quan", []) or [])]
@@ -21144,61 +21143,68 @@ def _grad_nhung_base64_anh_cau_tot_nghiep(q):
         if str(res.get("du_lieu_base64", "") or "").strip():
             continue
 
-        path = str(res.get("duong_dan", "") or res.get("duong_dan_anh", "") or "").strip()
+        path = str(res.get("duong_dan", "") or "").strip()
         if not path or not os.path.exists(path):
             continue
 
         try:
-            with open(path, "rb") as f_img:
-                raw_img = f_img.read()
-            if not raw_img:
+            with open(path, "rb") as f:
+                blob = f.read()
+            if not blob:
                 continue
-            ext_img = os.path.splitext(path)[1].lower()
-            mime_type = "image/png"
-            if ext_img in {".jpg", ".jpeg"}:
-                mime_type = "image/jpeg"
-            elif ext_img == ".gif":
-                mime_type = "image/gif"
-            elif ext_img == ".webp":
-                mime_type = "image/webp"
-            res["du_lieu_base64"] = base64.b64encode(raw_img).decode("ascii")
-            res["mime_type"] = res.get("mime_type") or mime_type
+
+            ext = os.path.splitext(path)[1].lower()
+            mime = str(res.get("mime_type", "") or "").strip()
+            if not mime:
+                if ext in {".jpg", ".jpeg"}:
+                    mime = "image/jpeg"
+                elif ext == ".webp":
+                    mime = "image/webp"
+                elif ext == ".gif":
+                    mime = "image/gif"
+                elif ext == ".bmp":
+                    mime = "image/bmp"
+                else:
+                    mime = "image/png"
+
+            res["du_lieu_base64"] = base64.b64encode(blob).decode("ascii")
+            res["mime_type"] = mime
             changed = True
         except Exception:
-            pass
+            continue
 
     if resources:
         q2["tai_nguyen_truc_quan"] = resources
 
-    # Đồng bộ trường tương thích renderer cũ từ ảnh đầu tiên.
-    first_img = next((
-        r for r in resources
-        if r.get("loai") == "anh" and (
-            str(r.get("du_lieu_base64", "") or "").strip()
-            or str(r.get("duong_dan", "") or "").strip()
-        )
-    ), None)
-    if first_img is not None:
-        data_old = dict(q2.get("du_lieu_truc_quan", {}) or {})
-        data_new = dict(data_old)
-        data_new.setdefault("loai", "hinh_tu_tai_lieu")
-        data_new["duong_dan_anh"] = str(first_img.get("duong_dan", "") or data_new.get("duong_dan_anh", ""))
-        if str(first_img.get("du_lieu_base64", "") or "").strip():
-            if data_new.get("du_lieu_base64") != first_img.get("du_lieu_base64"):
-                data_new["du_lieu_base64"] = first_img.get("du_lieu_base64", "")
+    # Đồng bộ luôn trường tương thích cũ để renderer nào dùng nhánh fallback
+    # cũng có thể lấy base64, không chỉ đường dẫn local.
+    first_img = next(
+        (r for r in resources if str(r.get("loai", "") or "").strip() == "anh"),
+        None,
+    )
+    if first_img:
+        data = dict(q2.get("du_lieu_truc_quan", {}) or {})
+        if not data or str(data.get("loai", "") or "").strip() in {"", "hinh_tu_tai_lieu"}:
+            new_data = dict(data)
+            new_data["loai"] = "hinh_tu_tai_lieu"
+            new_data["duong_dan_anh"] = str(first_img.get("duong_dan", "") or "").strip()
+            new_data["du_lieu_base64"] = str(first_img.get("du_lieu_base64", "") or "").strip()
+            new_data["mime_type"] = str(first_img.get("mime_type", "") or "").strip()
+            new_data.setdefault("nguon", str(first_img.get("nguon", q2.get("nguon_file", "")) or ""))
+            new_data.setdefault("mo_ta", "Hình trích nguyên từ đề nguồn")
+            if new_data != data:
+                q2["du_lieu_truc_quan"] = new_data
                 changed = True
-        if str(first_img.get("mime_type", "") or "").strip():
-            data_new["mime_type"] = first_img.get("mime_type", "")
-        data_new.setdefault("nguon", q2.get("nguon_file", ""))
-        data_new.setdefault("mo_ta", "Hình trích nguyên từ đề nguồn")
-        q2["du_lieu_truc_quan"] = data_new
+
+    if changed:
+        q2["anh_ben_vung_v2"] = True
 
     return q2
 
 
 def _grad_chuan_hoa_cau_da_nhap(q):
     """Nâng cấp câu cũ theo cơ chế mới mà không làm mất dữ liệu nguồn."""
-    q = _grad_nhung_base64_anh_cau_tot_nghiep(q)
+    q = _grad_ben_vung_hoa_anh_cau(q)
     q2 = gan_phan_loai_on_tap_cho_cau_tot_nghiep(q, force=False)
     status = str(q2.get("trang_thai", "") or "").strip()
 
@@ -21468,10 +21474,10 @@ def _grad_split_mcq_line(line):
 
 
 def _grad_extract_images_from_paragraph(para, doc, media_dir, stem, counter_start=0):
-    """Trích ảnh nổi/inline gắn với một paragraph Word và lưu thành file thật."""
+    """Trích ảnh Word và lưu theo 2 lớp: file local + base64 bền vững trên Supabase."""
     from docx.oxml.ns import qn
 
-    paths = []
+    resources = []
     counter = counter_start
     try:
         blips = para._p.xpath('.//a:blip')
@@ -21484,7 +21490,7 @@ def _grad_extract_images_from_paragraph(para, doc, media_dir, stem, counter_star
             continue
         try:
             part = doc.part.related_parts[rid]
-            blob = part.blob
+            blob = bytes(part.blob)
             ext = ".png"
             content_type = str(getattr(part, "content_type", "") or "").lower()
             if "jpeg" in content_type or "jpg" in content_type:
@@ -21493,15 +21499,29 @@ def _grad_extract_images_from_paragraph(para, doc, media_dir, stem, counter_star
                 ext = ".gif"
             elif "webp" in content_type:
                 ext = ".webp"
+            elif "bmp" in content_type:
+                ext = ".bmp"
+
             counter += 1
             name = f"{stem}_img_{counter:03d}{ext}"
             path = os.path.join(media_dir, name)
             with open(path, "wb") as f:
                 f.write(blob)
-            paths.append(path)
+
+            resources.append({
+                "loai": "anh",
+                "duong_dan": path,
+                # Quan trọng: link HS có thể chạy ở deployment/instance khác,
+                # vì vậy không được phụ thuộc duy nhất vào đường dẫn local.
+                "du_lieu_base64": base64.b64encode(blob).decode("ascii"),
+                "mime_type": content_type or (
+                    "image/jpeg" if ext in {".jpg", ".jpeg"}
+                    else f"image/{ext.lstrip('.')}"
+                ),
+            })
         except Exception:
             continue
-    return paths, counter
+    return resources, counter
 
 
 def _grad_parse_answer_tables(doc):
@@ -21725,16 +21745,16 @@ def _grad_parse_question_structure(part, qnum, lines, resources, answer_map, sou
         q["dap_an"] = inline_answer.strip() if inline_answer else str(answer_map.get("III", {}).get(int(qnum), "")).strip()
 
     # Tạo trường tương thích renderer cũ từ tài nguyên đầu tiên.
-    # Giữ cả base64 để mọi màn hình (đặc biệt link HS) không phụ thuộc file local.
     for res in q["tai_nguyen_truc_quan"]:
         if res.get("loai") == "anh" and (
-            res.get("duong_dan") or res.get("du_lieu_base64")
+            str(res.get("duong_dan", "") or "").strip()
+            or str(res.get("du_lieu_base64", "") or "").strip()
         ):
             q["du_lieu_truc_quan"] = {
                 "loai": "hinh_tu_tai_lieu",
-                "duong_dan_anh": res.get("duong_dan", ""),
-                "du_lieu_base64": res.get("du_lieu_base64", ""),
-                "mime_type": res.get("mime_type", ""),
+                "duong_dan_anh": str(res.get("duong_dan", "") or "").strip(),
+                "du_lieu_base64": str(res.get("du_lieu_base64", "") or "").strip(),
+                "mime_type": str(res.get("mime_type", "") or "").strip(),
                 "nguon": source_name,
                 "mo_ta": "Hình trích nguyên từ đề nguồn",
             }
@@ -21836,7 +21856,7 @@ def tach_de_tot_nghiep_docx(file_path, source_name=None):
             txt = str(para.text or "").strip()
 
             # Ảnh có thể nằm trong paragraph không có text.
-            img_paths, image_counter = _grad_extract_images_from_paragraph(
+            image_resources, image_counter = _grad_extract_images_from_paragraph(
                 para, doc, media_dir, safe_stem, image_counter
             )
 
@@ -21907,35 +21927,12 @@ def tach_de_tot_nghiep_docx(file_path, source_name=None):
                     if "HẾT" not in txt.upper() or len(txt) > 120:
                         current["lines"].append(txt)
 
-            if current is not None and img_paths and not in_answer_section:
-                for path in img_paths:
-                    # Ảnh của Ngân hàng tốt nghiệp phải đi theo dữ liệu câu hỏi,
-                    # không chỉ phụ thuộc filesystem cục bộ của app giáo viên.
-                    # Nhúng thêm base64 để deployment/link học sinh vẫn hiển thị được ảnh.
-                    img_b64 = ""
-                    mime_type = "image/png"
-                    try:
-                        ext_img = os.path.splitext(str(path or ""))[1].lower()
-                        if ext_img in {".jpg", ".jpeg"}:
-                            mime_type = "image/jpeg"
-                        elif ext_img == ".gif":
-                            mime_type = "image/gif"
-                        elif ext_img == ".webp":
-                            mime_type = "image/webp"
-                        with open(path, "rb") as f_img:
-                            raw_img = f_img.read()
-                        if raw_img:
-                            img_b64 = base64.b64encode(raw_img).decode("ascii")
-                    except Exception:
-                        img_b64 = ""
-
-                    current["resources"].append({
-                        "loai": "anh",
-                        "duong_dan": path,
-                        "du_lieu_base64": img_b64,
-                        "mime_type": mime_type,
-                        "nguon": source_name,
-                    })
+            if current is not None and image_resources and not in_answer_section:
+                for res in image_resources:
+                    res2 = dict(res)
+                    res2["nguon"] = source_name
+                    res2.setdefault("mo_ta", "Ảnh/sơ đồ/biểu đồ trích nguyên từ đề tốt nghiệp nguồn")
+                    current["resources"].append(res2)
 
         elif tag.endswith("}tbl"):
             tbl = Table(child, doc)
@@ -22086,18 +22083,24 @@ Yêu cầu:
     for res in q.get("tai_nguyen_truc_quan", []) or []:
         if res.get("loai") != "anh":
             continue
-        path = str(res.get("duong_dan", ""))
-        if not path or not os.path.exists(path):
-            continue
         try:
-            ext = os.path.splitext(path)[1].lower()
-            mime = "image/png"
-            if ext in {".jpg", ".jpeg"}:
-                mime = "image/jpeg"
-            elif ext == ".webp":
-                mime = "image/webp"
-            with open(path, "rb") as f:
-                contents.append(types.Part.from_bytes(data=f.read(), mime_type=mime))
+            path = str(res.get("duong_dan", "") or "").strip()
+            blob = b""
+            if path and os.path.exists(path):
+                with open(path, "rb") as f:
+                    blob = f.read()
+            if not blob:
+                blob = _anh_base64_bytes(res.get("du_lieu_base64") or res.get("image_base64") or "")
+            if not blob:
+                continue
+
+            mime = str(res.get("mime_type", "") or "").strip()
+            if not mime:
+                ext = os.path.splitext(path)[1].lower() if path else ""
+                mime = "image/jpeg" if ext in {".jpg", ".jpeg"} else (
+                    "image/webp" if ext == ".webp" else "image/png"
+                )
+            contents.append(types.Part.from_bytes(data=blob, mime_type=mime))
         except Exception:
             pass
 
@@ -23038,25 +23041,8 @@ def xay_dung_ngan_hang_tot_nghiep():
                         if not str(item.get("giai_thich", "") or "").strip() and str(q.get("giai_thich", "") or "").strip():
                             item["giai_thich"] = q.get("giai_thich", "")
                             item["nguon_giai_thich"] = q.get("nguon_giai_thich", "")
-
-                        tai_nguyen_cu = list(item.get("tai_nguyen_truc_quan", []) or [])
-                        tai_nguyen_moi = list(q.get("tai_nguyen_truc_quan", []) or [])
-                        cu_co_anh_nhung_chua_nhung = any(
-                            r.get("loai") == "anh"
-                            and not str(r.get("du_lieu_base64", "") or "").strip()
-                            for r in tai_nguyen_cu
-                        )
-                        moi_co_anh_da_nhung = any(
-                            r.get("loai") == "anh"
-                            and str(r.get("du_lieu_base64", "") or "").strip()
-                            for r in tai_nguyen_moi
-                        )
-
-                        # Quan trọng cho ngân hàng đã nhập từ phiên bản cũ:
-                        # nhập lại cùng file sẽ NÂNG CẤP ảnh path-only -> base64,
-                        # không cần xóa câu và không làm thay đổi nội dung câu hỏi.
-                        if tai_nguyen_moi and (not tai_nguyen_cu or (cu_co_anh_nhung_chua_nhung and moi_co_anh_da_nhung)):
-                            item["tai_nguyen_truc_quan"] = tai_nguyen_moi
+                        if not (item.get("tai_nguyen_truc_quan") or []) and (q.get("tai_nguyen_truc_quan") or []):
+                            item["tai_nguyen_truc_quan"] = q.get("tai_nguyen_truc_quan", [])
                             item["du_lieu_truc_quan"] = q.get("du_lieu_truc_quan", {})
 
                         # Luôn cập nhật phân loại ôn tập thô theo cơ chế mới.
