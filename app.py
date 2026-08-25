@@ -12192,1151 +12192,290 @@ def hien_thi_de_xem_truoc(de):
 
 @_safe_fragment
 def tao_de_giao_vien():
-    st.header(
-        "📝 TẠO ĐỀ TỪ NGÂN HÀNG"
-    )
+    st.header("🧩 TẠO MA TRẬN")
 
     st.caption(
-        "Chỉ rút câu đã duyệt trong ngân hàng. "
-        "Nếu một ô ma trận thiếu câu, hệ thống báo thiếu thay vì lấy sai mục tiêu."
+        "GV chọn Khối → Chương → Bài → YCCĐ → mức độ → năng lực → dạng câu hỏi "
+        "để tạo và lưu ma trận. Trang này không gọi Ngân hàng câu hỏi."
     )
 
-    noi_dung_de = st.radio(
-        "Nội dung",
-        [
-            "① Theo ma trận / đặc tả GV",
-            "② Luyện đề tốt nghiệp THPT",
-            "③ Mẫu đề đã lưu"
-        ],
-        index=None,
-        horizontal=True,
-        key="exam_main_mode"
+    ten_de = st.text_input(
+        "Tên ma trận",
+        value="Ma trận ôn tập / kiểm tra",
+        key="exam_custom_name"
     )
 
-    if not noi_dung_de:
-        return
+    c0, c1, c2 = st.columns(3)
 
-    if noi_dung_de == "① Theo ma trận / đặc tả GV":
-        ds_khoi_nhe = [
-            str(k).strip()
-            for k in (KHO_YCCD or {}).keys()
-            if str(k).strip()
-        ]
-        ds_khoi_nhe = sorted(
-            ds_khoi_nhe,
-            key=lambda x: int(re.search(r"(10|11|12)", x).group(1))
-            if re.search(r"(10|11|12)", x) else 999
-        )
+    # ------------------------------
+    # KHỐI: lấy trực tiếp từ KHO_YCCD
+    # ------------------------------
+    ds_khoi = [
+        str(k).strip()
+        for k in (KHO_YCCD or {}).keys()
+        if str(k).strip()
+    ]
+    ds_khoi = sorted(
+        ds_khoi,
+        key=lambda x: int(re.search(r"(10|11|12)", x).group(1))
+        if re.search(r"(10|11|12)", x) else 999
+    )
 
-        khoi_da_chon = st.selectbox(
+    with c0:
+        khoi = st.selectbox(
             "Khối",
-            ds_khoi_nhe,
+            ds_khoi,
             index=None,
             placeholder="Chọn khối",
             key="exam_custom_grade"
         )
 
-        if not khoi_da_chon:
-            return
-
-        # Chỉ sau khi GV chọn Khối mới gọi câu hỏi của đúng Khối đó.
-        try:
-            bank_main = _fast_get_questions_v2_by_scope(
-                khoi=khoi_da_chon,
-                expected_total=None,
-            )
-            if not isinstance(bank_main, list):
-                bank_main = []
-        except Exception:
-            bank_main = []
-
-        if not bank_main:
-            bank_main = [
-                q for q in doc_ngan_hang()
-                if q.get("khoi") == khoi_da_chon
-                and q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
-            ]
-        else:
-            bank_main = [
-                q for q in bank_main
-                if q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
-            ]
-
-        bank_grad = [
-            q for q in doc_ngan_hang_tot_nghiep_thuc_te()
-            if q.get("khoi") == khoi_da_chon
-            and cau_tot_nghiep_du_dieu_kien_su_dung(q)
-        ]
-
-        bank = []
-        seen_ids = set()
-        for q in bank_main + bank_grad:
-            key = str(q.get("id", "") or fingerprint_cau_hoi(q))
-            if key in seen_ids:
-                continue
-            seen_ids.add(key)
-            bank.append(q)
-
-        if not bank:
-            st.info(
-                "Ngân hàng chưa có câu đã duyệt ở khối đã chọn để tạo đề."
-            )
-            return
-        st.subheader(
-            "🎯 Ma trận / bản đặc tả của giáo viên"
-        )
-
-        ten_de = st.text_input(
-            "Tên đề",
-            value="Đề ôn tập / kiểm tra",
-            key="exam_custom_name"
-        )
-
-        c0, c1, c2 = st.columns(3)
-
-        with c0:
-            st.text_input(
-                "Khối",
-                value=khoi_da_chon,
-                disabled=True,
-                key="exam_custom_grade_display"
-            )
-            khoi = khoi_da_chon
-
-        with c1:
-            loai_kiem_tra = st.selectbox(
-                "Mục đích",
-                [
-                    "Ôn tập",
-                    "Kiểm tra thường xuyên",
-                    "Kiểm tra giữa kì",
-                    "Kiểm tra cuối kì"
-                ],
-                key="exam_custom_type"
-            )
-
-        with c2:
-            thoi_gian = st.number_input(
-                "Thời gian (phút)",
-                min_value=5,
-                max_value=180,
-                value=45,
-                step=5,
-                key="exam_custom_time"
-            )
-
-        bank_khoi = [
-            q for q in bank
-            if q.get("khoi") == khoi
-        ]
-
-        ds_chuong = sorted({
-            q.get("chuong", "")
-            for q in bank_khoi
-            if q.get("chuong")
-        })
-
-        ch = st.selectbox(
-            "Chương",
-            ["Tất cả"] + ds_chuong,
-            key="exam_spec_chuong"
-        )
-
-        bank_ch = (
-            bank_khoi
-            if ch == "Tất cả"
-            else [
-                q for q in bank_khoi
-                if q.get("chuong") == ch
-            ]
-        )
-
-        ds_bai = sorted({
-            q.get("bai", "")
-            for q in bank_ch
-            if q.get("bai")
-        })
-
-        bai = st.selectbox(
-            "Bài",
-            ["Tất cả"] + ds_bai,
-            key="exam_spec_bai"
-        )
-
-        # YCCĐ lấy từ ngân hàng + metadata từng ý Đ/S
-        ds_yccd = set()
-
-        for q in bank_ch:
-            if (
-                bai != "Tất cả"
-                and q.get("bai") != bai
-            ):
-                continue
-
-            for unit in metadata_don_vi_cau(q):
-                if unit["yccd"]:
-                    ds_yccd.add(
-                        unit["yccd"]
-                    )
-
-        c3, c4, c5 = st.columns(3)
-
-        with c3:
-            yccd = st.selectbox(
-                "YCCĐ",
-                ["Tất cả"] + sorted(ds_yccd),
-                key="exam_spec_yccd"
-            )
-
-        with c4:
-            muc = st.selectbox(
-                "Mức độ",
-                [
-                    "Tất cả",
-                    "Nhận biết",
-                    "Thông hiểu",
-                    "Vận dụng"
-                ],
-                key="exam_spec_level"
-            )
-
-        with c5:
-            nl = st.selectbox(
-                "Thành phần năng lực",
-                ["Tất cả"] + THANH_PHAN_NANG_LUC,
-                key="exam_spec_comp"
-            )
-
-        c6, c7 = st.columns(2)
-
-        with c6:
-            dang = st.selectbox(
-                "Dạng câu hỏi",
-                [
-                    "Trắc nghiệm 4 lựa chọn",
-                    "Đúng / Sai",
-                    "Trả lời ngắn"
-                ],
-                key="exam_spec_type"
-            )
-
-        with c7:
-            so_cau = st.number_input(
-                "Số câu ở dòng này",
-                min_value=1,
-                max_value=100,
-                value=1,
-                step=1,
-                key="exam_spec_count"
-            )
-
-        if st.button(
-            "➕ THÊM VÀO MA TRẬN",
-            type="secondary",
-            use_container_width=True,
-            key="exam_add_spec"
-        ):
-            st.session_state.ma_tran_de_gv.append({
-                "Khối": khoi,
-                "Chương": ch,
-                "Bài": bai,
-                "YCCĐ": yccd,
-                "Mức độ": muc,
-                "Thành phần năng lực": nl,
-                "Dạng câu hỏi": dang,
-                "Số câu": int(so_cau)
-            })
-            st.rerun()
-
-        if st.session_state.ma_tran_de_gv:
-            st.markdown(
-                "#### 📋 Ma trận hiện tại"
-            )
-
-            df_mt = pd.DataFrame(
-                st.session_state.ma_tran_de_gv
-            )
-
-            st.dataframe(
-                df_mt,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            tong = sum(
-                int(x["Số câu"])
-                for x in st.session_state.ma_tran_de_gv
-            )
-
-            st.info(
-                f"Tổng số câu dự kiến: **{tong}**"
-            )
-
-            # Tính trước điểm tối đa theo đúng đơn giá đề GV/ma trận:
-            # 0,25/câu 4LC; 0,25/ý Đ-S; 0,50/câu TLN.
-            diem_mt = 0.0
-            for dong_mt in st.session_state.ma_tran_de_gv:
-                n_mt = int(dong_mt.get("Số câu", 0) or 0)
-                dang_mt = dong_mt.get("Dạng câu hỏi", "")
-                if dang_mt == "Trắc nghiệm 4 lựa chọn":
-                    diem_mt += n_mt * 0.25
-                elif dang_mt == "Đúng / Sai":
-                    diem_mt += n_mt * 1.00
-                elif dang_mt == "Trả lời ngắn":
-                    diem_mt += n_mt * 0.50
-
-            st.caption(
-                f"Tổng điểm của ma trận hiện tại theo đơn giá đã quy ước: **{diem_mt:.2f} điểm**. "
-                "Khi HS **ôn theo đề/ma trận GV**, app chấm đúng trên chính tổng điểm này; "
-                "không khóa cứng 7 điểm. Với **kiểm tra theo ma trận GV**, ma trận chính thức vẫn cần đủ 10,0 điểm."
-            )
-
-            st.info(
-                "ℹ️ **Rút 1 mã đề để xem/lưu**: ma trận chỉ là khung yêu cầu. "
-                "Nút này lấy ngẫu nhiên một bộ câu cụ thể đúng từng ô ma trận để GV xem trước, lưu hoặc in. "
-                "Khi **kiểm tra theo ma trận**, GV không cần rút sẵn cho từng HS; app sẽ tự rút mã đề khác nhau cho từng em."
-            )
-
-            a1, a2, a3 = st.columns(3)
-
-            with a1:
-                if st.button(
-                    "🎲 RÚT 1 MÃ ĐỀ ĐỂ XEM / LƯU",
-                    type="primary",
-                    use_container_width=True,
-                    key="exam_draw_custom"
-                ):
-                    seed = str(
-                        uuid.uuid4()
-                    )
-
-                    ds_cau, thieu = (
-                        rut_de_theo_ma_tran(
-                            bank,
-                            st.session_state.ma_tran_de_gv,
-                            seed=seed
-                        )
-                    )
-
-                    de = {
-                        "id": str(uuid.uuid4()),
-                        "ma_de": seed[:8].upper(),
-                        "ten_de": ten_de,
-                        "loai": loai_kiem_tra,
-                        "khoi": khoi,
-                        "thoi_gian": int(thoi_gian),
-                        "ngay_tao": datetime.now().strftime(
-                            "%d/%m/%Y %H:%M"
-                        ),
-                        "ma_tran": list(
-                            st.session_state.ma_tran_de_gv
-                        ),
-                        "cau_hoi": ds_cau,
-                        "thieu": thieu
-                    }
-
-                    st.session_state.de_xem_truoc = de
-
-                    if thieu:
-                        st.warning(
-                            "Ngân hàng chưa đủ một số ô ma trận. "
-                            "Xem bảng thiếu phía dưới."
-                        )
-                    else:
-                        st.success(
-                            "Đã rút đủ đề theo ma trận."
-                        )
-
-            with a2:
-                if st.button(
-                    "💾 LƯU MẪU MA TRẬN",
-                    use_container_width=True,
-                    key="exam_save_custom_template"
-                ):
-                    luu_mau_de({
-                        "id": str(uuid.uuid4()),
-                        "ten_mau": ten_de,
-                        "che_do": "Ma trận GV",
-                        "phien_ban": 1,
-                        "khoi": khoi,
-                        "thoi_gian": int(thoi_gian),
-                        "ma_tran": list(
-                            st.session_state.ma_tran_de_gv
-                        ),
-                        "ngay_tao": datetime.now().strftime(
-                            "%d/%m/%Y %H:%M"
-                        )
-                    })
-                    st.success(
-                        "Đã lưu mẫu ma trận."
-                    )
-
-            with a3:
-                if st.button(
-                    "🗑 XÓA MA TRẬN",
-                    use_container_width=True,
-                    key="exam_clear_matrix"
-                ):
-                    st.session_state.ma_tran_de_gv = []
-                    st.session_state.de_xem_truoc = None
-                    st.rerun()
-
-            de_custom = st.session_state.de_xem_truoc
-
-            if (
-                de_custom
-                and de_custom.get("loai")
-                != "Luyện tốt nghiệp THPT"
-            ):
-                if de_custom.get("thieu"):
-                    st.dataframe(
-                        pd.DataFrame(
-                            de_custom["thieu"]
-                        ),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                else:
-                    if st.button(
-                        "✅ LƯU ĐỀ NÀY",
-                        use_container_width=True,
-                        key="exam_save_custom_exam"
-                    ):
-                        luu_de_da_tao(
-                            de_custom
-                        )
-                        st.success(
-                            "Đã lưu đề."
-                        )
-
-                hien_thi_de_xem_truoc(
-                    de_custom
-                )
-
-        else:
-            st.info(
-                "Thêm ít nhất một dòng vào ma trận để bắt đầu."
-            )
-
-    elif noi_dung_de == "② Luyện đề tốt nghiệp THPT":
-        st.subheader("🎓 Luyện đề tốt nghiệp THPT từ đề thật")
-        st.caption(
-            "Form được khóa đúng **18 câu 4 lựa chọn + 4 câu Đúng/Sai + 6 câu Trả lời ngắn**, "
-            "thời gian 50 phút. Mã đề được rút **chỉ từ Ngân hàng tốt nghiệp GV đã nhập**, "
-            "không lấy câu từ Ngân hàng ôn tập/kiểm tra."
-        )
-
-        bank12 = [
-            q for q in doc_ngan_hang_tot_nghiep_thuc_te()
-            if cau_tot_nghiep_du_dieu_kien_su_dung(q)
-        ]
-
-        if not bank12:
-            st.warning(
-                "Ngân hàng tốt nghiệp từ đề thật chưa có câu dùng được. "
-                "Hãy vào **🎓 Xây dựng NH tốt nghiệp** để nhập đề trước."
-            )
-        else:
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("4 lựa chọn", sum(q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" for q in bank12))
-            c2.metric("Đúng/Sai", sum(q.get("dang_cau") == "Đúng / Sai" for q in bank12))
-            c3.metric("Trả lời ngắn", sum(q.get("dang_cau") == "Trả lời ngắn" for q in bank12))
-            c4.metric("Nguồn đề", len({q.get("nguon_file", "") for q in bank12 if q.get("nguon_file")}))
-
-            st.info(
-                "Mỗi mã đề mới lấy **100% từ Ngân hàng tốt nghiệp**, trộn nhiều file nguồn và không lặp câu. "
-                "Ngân hàng tốt nghiệp được giữ riêng, không trộn với Ngân hàng ôn tập/kiểm tra."
-            )
-
-            specs_grad = [
-                {"Dạng câu hỏi": "Trắc nghiệm 4 lựa chọn", "Số câu": 18},
-                {"Dạng câu hỏi": "Đúng / Sai", "Số câu": 4},
-                {"Dạng câu hỏi": "Trả lời ngắn", "Số câu": 6},
-            ]
-            tg_grad = 50
-
-            if st.button(
-                "🎲 TẠO MÃ ĐỀ MỚI 18/4/6",
-                type="primary",
-                use_container_width=True,
-                key="grad_generate",
-            ):
-                seed = str(uuid.uuid4())
-                ds_cau, thieu = rut_de_tot_nghiep_tu_de_that(
-                    bank12,
-                    seed=seed
-                )
-                de = {
-                    "id": str(uuid.uuid4()),
-                    "ma_de": seed[:8].upper(),
-                    "ten_de": "Luyện đề tốt nghiệp THPT – Sinh học",
-                    "loai": "Luyện tốt nghiệp THPT",
-                    "khoi": "Khối 12",
-                    "thoi_gian": tg_grad,
-                    "ngay_tao": datetime.now().strftime("%d/%m/%Y %H:%M"),
-                    "ma_tran": specs_grad,
-                    "cau_hoi": ds_cau,
-                    "thieu": thieu,
-                    "nguon_de_that": True,
-                }
-                st.session_state.de_xem_truoc = de
-                if thieu:
-                    st.warning("Ngân hàng chưa đủ câu không trùng để tạo trọn form 18/4/6.")
-                else:
-                    st.success("Đã tạo một mã đề mới từ các câu gốc trong ngân hàng tốt nghiệp.")
-
-            de_grad = st.session_state.de_xem_truoc
-            if de_grad and de_grad.get("loai") == "Luyện tốt nghiệp THPT":
-                if de_grad.get("thieu"):
-                    st.dataframe(pd.DataFrame(de_grad["thieu"]), use_container_width=True, hide_index=True)
-                else:
-                    if st.button(
-                        "✅ LƯU MÃ ĐỀ NÀY",
-                        use_container_width=True,
-                        key="grad_save_exam",
-                    ):
-                        luu_de_da_tao(de_grad)
-                        st.success("Đã lưu mã đề.")
-                hien_thi_de_xem_truoc(de_grad)
-
-    else:
-        st.subheader("🗂️ Quản lý mẫu ma trận và đề đã lưu")
-        st.caption(
-            "GV có thể **xem – sửa – xóa** mẫu ma trận sau khi học sinh đã ôn/kiểm tra xong. "
-            "Xóa mẫu/đề chỉ làm nó biến mất khỏi danh sách giao cho học sinh; "
-            "**lịch sử và điểm học sinh đã nộp vẫn được giữ nguyên**."
-        )
-
-        che_do_quan_ly = st.radio(
-            "Quản lý",
+    with c1:
+        loai_kiem_tra = st.selectbox(
+            "Mục đích",
             [
-                "📋 Mẫu ma trận",
-                "📝 Đề đã lưu",
-                "🧪 Đợt kiểm tra"
+                "Ôn tập",
+                "Kiểm tra thường xuyên",
+                "Kiểm tra giữa kì",
+                "Kiểm tra cuối kì"
             ],
-            index=None,
-            horizontal=True,
-            key="exam_manage_mode"
+            key="exam_custom_type"
         )
 
-        if not che_do_quan_ly:
-            return
+    with c2:
+        thoi_gian = st.number_input(
+            "Thời gian (phút)",
+            min_value=5,
+            max_value=180,
+            value=45,
+            step=5,
+            key="exam_custom_time"
+        )
 
-        if che_do_quan_ly == "📋 Mẫu ma trận":
-            ds_mau = doc_json_list(EXAM_TEMPLATE_PATH)
+    if not khoi:
+        return
 
-            if not ds_mau:
-                st.info("Chưa có mẫu ma trận nào được lưu.")
-            else:
-                st.dataframe(
-                    pd.DataFrame([
-                        {
-                            "Tên mẫu": x.get("ten_mau", ""),
-                            "Khối": x.get("khoi", ""),
-                            "Thời gian (phút)": x.get("thoi_gian", ""),
-                            "Số dòng ma trận": len(x.get("ma_tran", []) or []),
-                            "Ngày tạo": x.get("ngay_tao", ""),
-                            "Cập nhật": x.get("ngay_cap_nhat", "")
-                        }
-                        for x in ds_mau
-                    ]),
-                    use_container_width=True,
-                    hide_index=True
-                )
+    ds_chuong_dict = (KHO_YCCD or {}).get(khoi, {})
+    if not isinstance(ds_chuong_dict, dict):
+        ds_chuong_dict = {}
 
-                idx_mau = st.selectbox(
-                    "Chọn mẫu để xem / sửa / xóa",
-                    options=list(range(len(ds_mau))),
-                    format_func=lambda i: (
-                        f"{ds_mau[i].get('ten_mau', 'Không tên')} • "
-                        f"{ds_mau[i].get('khoi', '')} • "
-                        f"{len(ds_mau[i].get('ma_tran', []) or [])} dòng"
-                    ),
-                    key="exam_manage_template_pick"
-                )
+    ds_chuong = [
+        str(x).strip()
+        for x in ds_chuong_dict.keys()
+        if str(x).strip()
+    ]
 
-                mau_chon = dict(ds_mau[idx_mau])
-                mau_id = str(mau_chon.get("id", idx_mau))
+    ch = st.selectbox(
+        "Chương",
+        ["Tất cả"] + ds_chuong,
+        key="exam_spec_chuong"
+    )
 
-                with st.container(border=True):
-                    st.markdown("### 👁️ Xem / chỉnh sửa mẫu")
-
-                    ten_mau_sua = st.text_input(
-                        "Tên mẫu",
-                        value=str(mau_chon.get("ten_mau", "")),
-                        key=f"exam_manage_template_name_{mau_id}"
-                    )
-
-                    ec1, ec2, ec3 = st.columns(3)
-                    with ec1:
-                        khoi_mau_sua = st.text_input(
-                            "Khối",
-                            value=str(mau_chon.get("khoi", "")),
-                            key=f"exam_manage_template_grade_{mau_id}"
-                        )
-                    with ec2:
-                        thoi_gian_mau_sua = st.number_input(
-                            "Thời gian (phút)",
-                            min_value=1,
-                            max_value=300,
-                            value=max(1, int(mau_chon.get("thoi_gian", 45) or 45)),
-                            step=5,
-                            key=f"exam_manage_template_time_{mau_id}"
-                        )
-                    with ec3:
-                        st.metric(
-                            "Số dòng ma trận",
-                            len(mau_chon.get("ma_tran", []) or [])
-                        )
-
-                    st.markdown("**Ma trận / bản đặc tả**")
-                    df_mau_sua = pd.DataFrame(
-                        mau_chon.get("ma_tran", []) or [],
-                        columns=[
-                            "Khối", "Chương", "Bài", "YCCĐ", "Mức độ",
-                            "Thành phần năng lực", "Dạng câu hỏi", "Số câu"
-                        ]
-                    )
-
-                    df_mau_sua = st.data_editor(
-                        df_mau_sua,
-                        num_rows="dynamic",
-                        use_container_width=True,
-                        hide_index=True,
-                        key=f"exam_manage_template_editor_{mau_id}",
-                        column_config={
-                            "Số câu": st.column_config.NumberColumn(
-                                "Số câu", min_value=1, step=1
-                            )
-                        }
-                    )
-
-                    # Hiển thị điểm tối đa dự kiến ngay khi sửa.
-                    diem_du_kien = 0.0
-                    for _, r in df_mau_sua.iterrows():
-                        try:
-                            n = int(r.get("Số câu", 0) or 0)
-                        except Exception:
-                            n = 0
-                        d = str(r.get("Dạng câu hỏi", "")).strip()
-                        if d == "Trắc nghiệm 4 lựa chọn":
-                            diem_du_kien += n * 0.25
-                        elif d == "Đúng / Sai":
-                            diem_du_kien += n * 1.00
-                        elif d == "Trả lời ngắn":
-                            diem_du_kien += n * 0.50
-
-                    st.info(
-                        f"Điểm tối đa theo đơn giá hiện hành: **{diem_du_kien:.2f} điểm**. "
-                        "Ôn theo đề GV thường hướng đến 7 điểm tự động; kiểm tra theo ma trận hướng đến 10 điểm."
-                    )
-
-                    sm1, sm2 = st.columns(2)
-                    with sm1:
-                        if st.button(
-                            "💾 LƯU THAY ĐỔI MẪU",
-                            type="primary",
-                            use_container_width=True,
-                            key=f"exam_manage_template_save_{mau_id}"
-                        ):
-                            ma_tran_moi = []
-                            for rec in df_mau_sua.to_dict("records"):
-                                # Bỏ dòng hoàn toàn rỗng.
-                                if not any(str(v).strip() for v in rec.values() if v is not None):
-                                    continue
-                                try:
-                                    rec["Số câu"] = max(1, int(rec.get("Số câu", 1) or 1))
-                                except Exception:
-                                    rec["Số câu"] = 1
-                                for field in [
-                                    "Khối", "Chương", "Bài", "YCCĐ", "Mức độ",
-                                    "Thành phần năng lực", "Dạng câu hỏi"
-                                ]:
-                                    rec[field] = str(rec.get(field, "") or "").strip()
-                                ma_tran_moi.append(rec)
-
-                            if not ma_tran_moi:
-                                st.error("Mẫu phải có ít nhất một dòng ma trận.")
-                            else:
-                                mau_moi = dict(mau_chon)
-                                mau_moi["ten_mau"] = ten_mau_sua.strip() or "Ma trận không tên"
-                                mau_moi["khoi"] = khoi_mau_sua.strip()
-                                mau_moi["thoi_gian"] = int(thoi_gian_mau_sua)
-                                mau_moi["ma_tran"] = ma_tran_moi
-                                mau_moi["phien_ban"] = int(mau_chon.get("phien_ban", 1) or 1) + 1
-                                mau_moi["ngay_cap_nhat"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                                ds_mau[idx_mau] = mau_moi
-                                luu_json_list(EXAM_TEMPLATE_PATH, ds_mau)
-                                st.success("Đã cập nhật mẫu ma trận. Học sinh sẽ thấy phiên bản mới ở lượt tiếp theo.")
-                                st.rerun()
-
-                    with sm2:
-                        xac_nhan_xoa_mau = st.checkbox(
-                            "Tôi xác nhận xóa mẫu này khỏi danh sách giao cho học sinh.",
-                            key=f"exam_manage_template_delete_confirm_{mau_id}"
-                        )
-                        if st.button(
-                            "🗑 XÓA MẪU MA TRẬN",
-                            use_container_width=True,
-                            disabled=not xac_nhan_xoa_mau,
-                            key=f"exam_manage_template_delete_{mau_id}"
-                        ):
-                            mau_xoa_id = str(mau_chon.get("id", ""))
-                            ds_mau.pop(idx_mau)
-                            luu_json_list(EXAM_TEMPLATE_PATH, ds_mau)
-
-                            # Xóa luôn các đợt kiểm tra còn đang tham chiếu mẫu này
-                            # để HS không thể tiếp tục vào một đợt đã bị GV thu hồi.
-                            if mau_xoa_id:
-                                ds_dot_lien_quan = [
-                                    d for d in doc_dot_kiem_tra_ma_tran()
-                                    if str(d.get("mau_id", "")) != mau_xoa_id
-                                ]
-                                luu_dot_kiem_tra_ma_tran(ds_dot_lien_quan)
-
-                            st.success(
-                                "Đã xóa mẫu ma trận và thu hồi các đợt kiểm tra đang tham chiếu mẫu này. "
-                                "Lịch sử/điểm học sinh đã nộp vẫn được giữ."
-                            )
-                            st.rerun()
-
-        elif che_do_quan_ly == "📝 Đề đã lưu":
-            ds_de = doc_json_list(EXAM_PATH)
-
-            if not ds_de:
-                st.info("Chưa có đề cụ thể nào được lưu.")
-            else:
-                st.dataframe(
-                    pd.DataFrame([
-                        {
-                            "Tên đề": x.get("ten_de", ""),
-                            "Mã đề": x.get("ma_de", ""),
-                            "Loại": x.get("loai", ""),
-                            "Khối": x.get("khoi", ""),
-                            "Thời gian": x.get("thoi_gian", ""),
-                            "Số câu": len(x.get("cau_hoi", []) or []),
-                            "Ngày tạo": x.get("ngay_tao", "")
-                        }
-                        for x in ds_de
-                    ]),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                idx_de = st.selectbox(
-                    "Chọn đề để xem / sửa thông tin / xóa",
-                    options=list(range(len(ds_de))),
-                    format_func=lambda i: (
-                        f"{ds_de[i].get('ten_de', ds_de[i].get('ma_de', 'Không tên'))} • "
-                        f"{ds_de[i].get('ma_de', '')}"
-                    ),
-                    key="exam_manage_exam_pick"
-                )
-
-                de_chon = dict(ds_de[idx_de])
-                de_id = str(de_chon.get("id", idx_de))
-
-                with st.container(border=True):
-                    st.markdown("### 👁️ Xem / chỉnh sửa thông tin đề")
-
-                    dc1, dc2, dc3 = st.columns(3)
-                    with dc1:
-                        ten_de_sua = st.text_input(
-                            "Tên đề",
-                            value=str(de_chon.get("ten_de", "")),
-                            key=f"exam_manage_exam_name_{de_id}"
-                        )
-                    with dc2:
-                        loai_de_sua = st.text_input(
-                            "Loại / mục đích",
-                            value=str(de_chon.get("loai", "")),
-                            key=f"exam_manage_exam_type_{de_id}"
-                        )
-                    with dc3:
-                        thoi_gian_de_sua = st.number_input(
-                            "Thời gian (phút)",
-                            min_value=1,
-                            max_value=300,
-                            value=max(1, int(de_chon.get("thoi_gian", 45) or 45)),
-                            step=5,
-                            key=f"exam_manage_exam_time_{de_id}"
-                        )
-
-                    st.caption(
-                        "Để bảo toàn đáp án và dữ liệu bài đã giao, phần sửa đề đã lưu chỉ thay đổi **tên / loại / thời gian**. "
-                        "Muốn thay câu hỏi, GV nên sửa ma trận rồi rút một mã đề mới."
-                    )
-
-                    sd1, sd2 = st.columns(2)
-                    with sd1:
-                        if st.button(
-                            "💾 LƯU THÔNG TIN ĐỀ",
-                            type="primary",
-                            use_container_width=True,
-                            key=f"exam_manage_exam_save_{de_id}"
-                        ):
-                            de_moi = dict(de_chon)
-                            de_moi["ten_de"] = ten_de_sua.strip() or de_chon.get("ten_de", "Đề không tên")
-                            de_moi["loai"] = loai_de_sua.strip()
-                            de_moi["thoi_gian"] = int(thoi_gian_de_sua)
-                            de_moi["ngay_cap_nhat"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                            ds_de[idx_de] = de_moi
-                            luu_json_list(EXAM_PATH, ds_de)
-                            st.success("Đã cập nhật thông tin đề.")
-                            st.rerun()
-
-                    with sd2:
-                        xac_nhan_xoa_de = st.checkbox(
-                            "Tôi xác nhận xóa đề này khỏi danh sách học sinh.",
-                            key=f"exam_manage_exam_delete_confirm_{de_id}"
-                        )
-                        if st.button(
-                            "🗑 XÓA ĐỀ ĐÃ LƯU",
-                            use_container_width=True,
-                            disabled=not xac_nhan_xoa_de,
-                            key=f"exam_manage_exam_delete_{de_id}"
-                        ):
-                            ds_de.pop(idx_de)
-                            luu_json_list(EXAM_PATH, ds_de)
-                            st.success(
-                                "Đã xóa đề khỏi danh sách. Kết quả học sinh đã nộp trước đó không bị xóa."
-                            )
-                            st.rerun()
-
-                with st.expander("📄 Xem nội dung đề", expanded=False):
-                    hien_thi_de_xem_truoc(de_chon)
-
-        else:
-            st.subheader("🧪 Giao đợt kiểm tra theo ma trận")
-            st.caption(
-                "Mỗi **đợt kiểm tra** có mã riêng, lớp áp dụng, giờ mở, giờ kết thúc đợt, thời gian làm và quyền xem đáp án. "
-                "Một học sinh chỉ được nộp **1 lần trong mỗi đợt**. Ma trận được chụp lại tại lúc giao để đề của cả đợt không thay đổi giữa chừng."
-            )
-
-            ds_mau_kt = [
-                x for x in doc_json_list(EXAM_TEMPLATE_PATH)
-                if x.get("ma_tran")
+    # ------------------------------
+    # BÀI: chỉ dựng tên từ KHO_YCCD
+    # ------------------------------
+    ds_bai = []
+    if ch == "Tất cả":
+        for _chuong, _ds_bai in ds_chuong_dict.items():
+            if isinstance(_ds_bai, dict):
+                for _bai in _ds_bai.keys():
+                    _bai = str(_bai).strip()
+                    if _bai and _bai not in ds_bai:
+                        ds_bai.append(_bai)
+    else:
+        _ds_bai = ds_chuong_dict.get(ch, {})
+        if isinstance(_ds_bai, dict):
+            ds_bai = [
+                str(x).strip()
+                for x in _ds_bai.keys()
+                if str(x).strip()
             ]
-            ds_dot = doc_dot_kiem_tra_ma_tran()
 
-            if not ds_mau_kt:
-                st.info("Chưa có mẫu ma trận. Hãy lưu mẫu ma trận trước khi tạo đợt kiểm tra.")
-            else:
-                st.markdown("### ➕ Tạo đợt kiểm tra mới")
+    bai = st.selectbox(
+        "Bài",
+        ["Tất cả"] + ds_bai,
+        key="exam_spec_bai"
+    )
 
-                idx_mau_kt = st.selectbox(
-                    "Chọn ma trận dùng để kiểm tra",
-                    options=list(range(len(ds_mau_kt))),
-                    format_func=lambda i: (
-                        f"{ds_mau_kt[i].get('ten_mau', 'Không tên')} • "
-                        f"{ds_mau_kt[i].get('khoi', '')} • PB{int(ds_mau_kt[i].get('phien_ban', 1) or 1)}"
-                    ),
-                    key="exam_assignment_template_pick"
+    # ------------------------------
+    # YCCĐ: chỉ dựng từ cấu trúc chương trình
+    # ------------------------------
+    ds_yccd = []
+
+    def _them_yccd_tu_ds(_raw):
+        if isinstance(_raw, list):
+            items = _raw
+        elif isinstance(_raw, dict):
+            items = list(_raw.values())
+        else:
+            items = [_raw]
+
+        for _y in items:
+            if isinstance(_y, dict):
+                _y = (
+                    _y.get("YCCĐ")
+                    or _y.get("yccd")
+                    or _y.get("noi_dung")
+                    or ""
                 )
-                mau_giao = ds_mau_kt[idx_mau_kt]
-                diem_mau_giao = tinh_diem_ma_tran_theo_don_gia(
-                    mau_giao.get("ma_tran", []) or []
+            _y = str(_y or "").strip()
+            if _y and _y not in ds_yccd:
+                ds_yccd.append(_y)
+
+    for _chuong, _ds_bai in ds_chuong_dict.items():
+        if ch != "Tất cả" and str(_chuong) != ch:
+            continue
+        if not isinstance(_ds_bai, dict):
+            continue
+        for _bai, _raw_yccd in _ds_bai.items():
+            if bai != "Tất cả" and str(_bai) != bai:
+                continue
+            _them_yccd_tu_ds(_raw_yccd)
+
+    c3, c4, c5 = st.columns(3)
+
+    with c3:
+        yccd = st.selectbox(
+            "YCCĐ",
+            ["Tất cả"] + ds_yccd,
+            key="exam_spec_yccd"
+        )
+
+    with c4:
+        muc = st.selectbox(
+            "Mức độ",
+            [
+                "Tất cả",
+                "Nhận biết",
+                "Thông hiểu",
+                "Vận dụng"
+            ],
+            key="exam_spec_level"
+        )
+
+    with c5:
+        nl = st.selectbox(
+            "Thành phần năng lực",
+            ["Tất cả"] + THANH_PHAN_NANG_LUC,
+            key="exam_spec_comp"
+        )
+
+    c6, c7 = st.columns(2)
+
+    with c6:
+        dang = st.selectbox(
+            "Dạng câu hỏi",
+            [
+                "Trắc nghiệm 4 lựa chọn",
+                "Đúng / Sai",
+                "Trả lời ngắn"
+            ],
+            key="exam_spec_type"
+        )
+
+    with c7:
+        so_cau = st.number_input(
+            "Số câu ở dòng này",
+            min_value=1,
+            max_value=100,
+            value=1,
+            step=1,
+            key="exam_spec_count"
+        )
+
+    if st.button(
+        "➕ THÊM VÀO MA TRẬN",
+        type="secondary",
+        use_container_width=True,
+        key="exam_add_spec"
+    ):
+        st.session_state.ma_tran_de_gv.append({
+            "Khối": khoi,
+            "Chương": ch,
+            "Bài": bai,
+            "YCCĐ": yccd,
+            "Mức độ": muc,
+            "Thành phần năng lực": nl,
+            "Dạng câu hỏi": dang,
+            "Số câu": int(so_cau)
+        })
+        st.rerun()
+
+    if not st.session_state.ma_tran_de_gv:
+        st.info("Thêm ít nhất một dòng vào ma trận để bắt đầu.")
+        return
+
+    st.markdown("#### 📋 Ma trận hiện tại")
+
+    df_mt = pd.DataFrame(
+        st.session_state.ma_tran_de_gv
+    )
+
+    st.dataframe(
+        df_mt,
+        use_container_width=True,
+        hide_index=True
+    )
+
+    tong = sum(
+        int(x.get("Số câu", 0) or 0)
+        for x in st.session_state.ma_tran_de_gv
+    )
+
+    st.info(
+        f"Tổng số câu dự kiến: **{tong}**"
+    )
+
+    diem_mt = 0.0
+    for dong_mt in st.session_state.ma_tran_de_gv:
+        n_mt = int(dong_mt.get("Số câu", 0) or 0)
+        dang_mt = dong_mt.get("Dạng câu hỏi", "")
+        if dang_mt == "Trắc nghiệm 4 lựa chọn":
+            diem_mt += n_mt * 0.25
+        elif dang_mt == "Đúng / Sai":
+            diem_mt += n_mt * 1.00
+        elif dang_mt == "Trả lời ngắn":
+            diem_mt += n_mt * 0.50
+
+    st.caption(
+        f"Tổng điểm dự kiến theo ma trận: **{diem_mt:.2f} điểm**."
+    )
+
+    a1, a2 = st.columns(2)
+
+    with a1:
+        if st.button(
+            "💾 LƯU MA TRẬN",
+            type="primary",
+            use_container_width=True,
+            key="exam_save_custom_template"
+        ):
+            luu_mau_de({
+                "id": str(uuid.uuid4()),
+                "ten_mau": ten_de,
+                "che_do": "Ma trận GV",
+                "phien_ban": 1,
+                "khoi": khoi,
+                "muc_dich": loai_kiem_tra,
+                "thoi_gian": int(thoi_gian),
+                "ma_tran": list(
+                    st.session_state.ma_tran_de_gv
+                ),
+                "ngay_tao": datetime.now().strftime(
+                    "%d/%m/%Y %H:%M"
                 )
+            })
+            st.success("Đã lưu ma trận.")
 
-                st.info(
-                    f"Ma trận này có tổng điểm tự động **{diem_mau_giao:.2f}/10,00** theo đơn giá kiểm tra."
-                )
-                if abs(diem_mau_giao - 10.0) > 1e-9:
-                    st.error(
-                        "Chưa thể giao kiểm tra chính thức: ma trận phải đạt đúng **10,00 điểm**. "
-                        "Hãy sửa ma trận trước."
-                    )
-
-                now_vn = bay_gio_viet_nam()
-                start_default = now_vn + timedelta(minutes=5)
-                end_default = start_default + timedelta(hours=2)
-
-                ten_dot_moi = st.text_input(
-                    "Tên đợt kiểm tra",
-                    value=f"Kiểm tra – {mau_giao.get('ten_mau', 'Ma trận')}",
-                    key="exam_assignment_name_new"
-                )
-
-                lop_options = ["Tất cả"] + lay_danh_sach_lop_tu_hoc_sinh()
-                lop_dot_moi = st.selectbox(
-                    "Lớp được làm bài",
-                    lop_options,
-                    key="exam_assignment_class_new"
-                )
-
-                t1, t2 = st.columns(2)
-                with t1:
-                    ngay_mo = st.date_input(
-                        "Ngày mở",
-                        value=start_default.date(),
-                        key="exam_assignment_start_date_new"
-                    )
-                    gio_mo = st.time_input(
-                        "Giờ mở",
-                        value=start_default.time().replace(second=0, microsecond=0),
-                        key="exam_assignment_start_time_new"
-                    )
-                with t2:
-                    ngay_dong = st.date_input(
-                        "Ngày kết thúc đợt",
-                        value=end_default.date(),
-                        key="exam_assignment_end_date_new"
-                    )
-                    gio_dong = st.time_input(
-                        "Giờ kết thúc đợt",
-                        value=end_default.time().replace(second=0, microsecond=0),
-                        key="exam_assignment_end_time_new"
-                    )
-
-                thoi_gian_lam_moi = st.number_input(
-                    "Thời gian làm bài của mỗi học sinh (phút)",
-                    min_value=5,
-                    max_value=300,
-                    value=max(5, int(mau_giao.get("thoi_gian", 45) or 45)),
-                    step=5,
-                    key="exam_assignment_duration_new"
-                )
-
-                mo_preview = datetime.combine(ngay_mo, gio_mo).replace(tzinfo=VN_TZ)
-                dong_preview = datetime.combine(ngay_dong, gio_dong).replace(tzinfo=VN_TZ)
-                han_bat_dau_preview = dong_preview - timedelta(minutes=int(thoi_gian_lam_moi))
-                cua_so_hop_le_moi = (
-                    dong_preview > mo_preview
-                    and han_bat_dau_preview >= mo_preview
-                )
-
-                if cua_so_hop_le_moi:
-                    st.info(
-                        "⏰ **Cách tính thời gian:** HS được bắt đầu từ "
-                        f"**{mo_preview.strftime('%d/%m/%Y %H:%M')}** đến chậm nhất "
-                        f"**{han_bat_dau_preview.strftime('%d/%m/%Y %H:%M')}**. "
-                        f"Mỗi HS có đúng **{int(thoi_gian_lam_moi)} phút** kể từ lúc bấm Bắt đầu; "
-                        f"toàn bộ đợt kết thúc lúc **{dong_preview.strftime('%d/%m/%Y %H:%M')}**."
-                    )
-                else:
-                    st.error(
-                        "Khoảng từ giờ mở đến giờ kết thúc đợt phải ít nhất bằng "
-                        f"**{int(thoi_gian_lam_moi)} phút** để HS có đủ thời gian làm bài."
-                    )
-
-                if st.button(
-                    "📤 GIAO ĐỢT KIỂM TRA",
-                    type="primary",
-                    use_container_width=True,
-                    disabled=(
-                        abs(diem_mau_giao - 10.0) > 1e-9
-                        or not cua_so_hop_le_moi
-                    ),
-                    key="exam_assignment_create"
-                ):
-                    mo_dt = mo_preview
-                    dong_dt = dong_preview
-                    han_bat_dau_dt = han_bat_dau_preview
-                    if dong_dt <= mo_dt:
-                        st.error("Giờ kết thúc đợt phải sau giờ mở.")
-                    elif han_bat_dau_dt < mo_dt:
-                        st.error("Khung giờ kiểm tra quá ngắn so với thời gian làm bài của mỗi học sinh.")
-                    else:
-                        dot_moi = {
-                            "id": str(uuid.uuid4()),
-                            "ten_dot": ten_dot_moi.strip() or f"Kiểm tra – {mau_giao.get('ten_mau', 'Ma trận')}",
-                            "mau_id": str(mau_giao.get("id", "")),
-                            "ten_mau": str(mau_giao.get("ten_mau", "")),
-                            "mau_phien_ban": int(mau_giao.get("phien_ban", 1) or 1),
-                            "khoi": str(mau_giao.get("khoi", "")),
-                            "lop_ap_dung": lop_dot_moi,
-                            "ma_tran_snapshot": list(mau_giao.get("ma_tran", []) or []),
-                            "thoi_gian_lam_phut": int(thoi_gian_lam_moi),
-                            "mo_tu_iso": mo_dt.isoformat(),
-                            "dong_luc_iso": dong_dt.isoformat(),
-                            "han_cuoi_bat_dau_iso": han_bat_dau_dt.isoformat(),
-                            "mo_dap_an": False,
-                            "ngay_tao": bay_gio_viet_nam().strftime("%d/%m/%Y %H:%M"),
-                            "ngay_cap_nhat": ""
-                        }
-                        ds_dot.append(dot_moi)
-                        luu_dot_kiem_tra_ma_tran(ds_dot)
-                        st.success(
-                            "Đã giao đợt kiểm tra. Học sinh đúng lớp chỉ thấy đợt này trong thời gian được phép. "
-                            "Đáp án đang khóa mặc định."
-                        )
-                        st.rerun()
-
-            st.markdown("---")
-            st.markdown("### 🗂️ Các đợt kiểm tra đã giao")
-            ds_dot = doc_dot_kiem_tra_ma_tran()
-
-            if not ds_dot:
-                st.info("Chưa có đợt kiểm tra nào.")
-            else:
-                lich_su_all_dot = doc_lich_su_hoc_sinh()
-                rows_dot = []
-                for d in ds_dot:
-                    status, _ = trang_thai_dot_kiem_tra(d)
-                    dot_id = str(d.get("id", ""))
-                    so_nop = sum(
-                        1 for lan in lich_su_all_dot
-                        if str((lan.get("pham_vi", {}) or {}).get("dot_kiem_tra_id", "")) == dot_id
-                    )
-                    rows_dot.append({
-                        "Đợt kiểm tra": d.get("ten_dot", ""),
-                        "Ma trận": d.get("ten_mau", ""),
-                        "Lớp": d.get("lop_ap_dung", "Tất cả"),
-                        "Mở từ": fmt_vn_datetime(d.get("mo_tu_iso", "")),
-                        "Hạn cuối bắt đầu": fmt_vn_datetime(han_cuoi_bat_dau_dot_kiem_tra(d)),
-                        "Kết thúc đợt": fmt_vn_datetime(d.get("dong_luc_iso", "")),
-                        "Thời gian làm": f"{int(d.get('thoi_gian_lam_phut', 0) or 0)} phút",
-                        "Trạng thái": status,
-                        "Đáp án": "Đã mở" if d.get("mo_dap_an") else "Đang khóa",
-                        "Số bài đã nộp": so_nop
-                    })
-
-                st.dataframe(
-                    pd.DataFrame(rows_dot),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-                idx_dot = st.selectbox(
-                    "Chọn đợt để sửa / mở đáp án / xóa",
-                    options=list(range(len(ds_dot))),
-                    format_func=lambda i: (
-                        f"{ds_dot[i].get('ten_dot', 'Không tên')} • "
-                        f"{ds_dot[i].get('lop_ap_dung', 'Tất cả')} • "
-                        f"{fmt_vn_datetime(ds_dot[i].get('mo_tu_iso', ''))}"
-                    ),
-                    key="exam_assignment_manage_pick"
-                )
-                dot_chon = dict(ds_dot[idx_dot])
-                dot_id = str(dot_chon.get("id", idx_dot))
-                mo_old = parse_iso_vn(dot_chon.get("mo_tu_iso", "")) or bay_gio_viet_nam()
-                dong_old = parse_iso_vn(dot_chon.get("dong_luc_iso", "")) or (mo_old + timedelta(hours=2))
-
-                with st.container(border=True):
-                    st.markdown("### ⚙️ Cài đặt đợt kiểm tra")
-                    ten_dot_sua = st.text_input(
-                        "Tên đợt",
-                        value=str(dot_chon.get("ten_dot", "")),
-                        key=f"exam_assignment_edit_name_{dot_id}"
-                    )
-                    ds_lop_sua = ["Tất cả"] + lay_danh_sach_lop_tu_hoc_sinh()
-                    lop_cu = str(dot_chon.get("lop_ap_dung", "Tất cả") or "Tất cả")
-                    if lop_cu not in ds_lop_sua:
-                        ds_lop_sua.append(lop_cu)
-                    lop_dot_sua = st.selectbox(
-                        "Lớp áp dụng",
-                        ds_lop_sua,
-                        index=ds_lop_sua.index(lop_cu),
-                        key=f"exam_assignment_edit_class_{dot_id}"
-                    )
-
-                    e1, e2 = st.columns(2)
-                    with e1:
-                        ngay_mo_sua = st.date_input(
-                            "Ngày mở",
-                            value=mo_old.date(),
-                            key=f"exam_assignment_edit_start_date_{dot_id}"
-                        )
-                        gio_mo_sua = st.time_input(
-                            "Giờ mở",
-                            value=mo_old.time().replace(tzinfo=None, second=0, microsecond=0),
-                            key=f"exam_assignment_edit_start_time_{dot_id}"
-                        )
-                    with e2:
-                        ngay_dong_sua = st.date_input(
-                            "Ngày kết thúc đợt",
-                            value=dong_old.date(),
-                            key=f"exam_assignment_edit_end_date_{dot_id}"
-                        )
-                        gio_dong_sua = st.time_input(
-                            "Giờ kết thúc đợt",
-                            value=dong_old.time().replace(tzinfo=None, second=0, microsecond=0),
-                            key=f"exam_assignment_edit_end_time_{dot_id}"
-                        )
-
-                    tg_sua = st.number_input(
-                        "Thời gian làm bài (phút)",
-                        min_value=5,
-                        max_value=300,
-                        value=max(5, int(dot_chon.get("thoi_gian_lam_phut", 45) or 45)),
-                        step=5,
-                        key=f"exam_assignment_edit_duration_{dot_id}"
-                    )
-
-                    mo_preview_sua = datetime.combine(ngay_mo_sua, gio_mo_sua).replace(tzinfo=VN_TZ)
-                    dong_preview_sua = datetime.combine(ngay_dong_sua, gio_dong_sua).replace(tzinfo=VN_TZ)
-                    han_bat_dau_preview_sua = dong_preview_sua - timedelta(minutes=int(tg_sua))
-                    cua_so_hop_le_sua = (
-                        dong_preview_sua > mo_preview_sua
-                        and han_bat_dau_preview_sua >= mo_preview_sua
-                    )
-                    if cua_so_hop_le_sua:
-                        st.info(
-                            "⏰ Hạn cuối HS được bắt đầu: "
-                            f"**{han_bat_dau_preview_sua.strftime('%d/%m/%Y %H:%M')}** • "
-                            f"mỗi HS có đúng **{int(tg_sua)} phút** • "
-                            f"kết thúc toàn bộ đợt lúc **{dong_preview_sua.strftime('%d/%m/%Y %H:%M')}**."
-                        )
-                    else:
-                        st.error(
-                            "Khung giờ hiện tại không đủ cho mỗi HS làm trọn "
-                            f"**{int(tg_sua)} phút**."
-                        )
-
-                    mo_dap_an_sua = st.toggle(
-                        "🔓 Cho học sinh xem đáp án và lời giải sau khi đã nộp",
-                        value=bool(dot_chon.get("mo_dap_an", False)),
-                        key=f"exam_assignment_edit_release_{dot_id}"
-                    )
-                    st.caption(
-                        "Khi tắt: HS sau khi nộp chỉ thấy **điểm và thời gian**, không thấy câu đúng/sai, đáp án, lời giải hay phản hồi có thể làm lộ đáp án."
-                    )
-
-                    em1, em2 = st.columns(2)
-                    with em1:
-                        if st.button(
-                            "💾 LƯU CÀI ĐẶT ĐỢT",
-                            type="primary",
-                            use_container_width=True,
-                            key=f"exam_assignment_edit_save_{dot_id}"
-                        ):
-                            mo_new = mo_preview_sua
-                            dong_new = dong_preview_sua
-                            han_bat_dau_new = han_bat_dau_preview_sua
-                            if dong_new <= mo_new:
-                                st.error("Giờ kết thúc đợt phải sau giờ mở.")
-                            elif han_bat_dau_new < mo_new:
-                                st.error("Khung giờ kiểm tra quá ngắn so với thời gian làm bài của mỗi học sinh.")
-                            else:
-                                dot_new = dict(dot_chon)
-                                dot_new["ten_dot"] = ten_dot_sua.strip() or dot_chon.get("ten_dot", "Đợt kiểm tra")
-                                dot_new["lop_ap_dung"] = lop_dot_sua
-                                dot_new["mo_tu_iso"] = mo_new.isoformat()
-                                dot_new["dong_luc_iso"] = dong_new.isoformat()
-                                dot_new["han_cuoi_bat_dau_iso"] = han_bat_dau_new.isoformat()
-                                dot_new["thoi_gian_lam_phut"] = int(tg_sua)
-                                dot_new["mo_dap_an"] = bool(mo_dap_an_sua)
-                                dot_new["ngay_cap_nhat"] = bay_gio_viet_nam().strftime("%d/%m/%Y %H:%M")
-                                ds_dot[idx_dot] = dot_new
-                                luu_dot_kiem_tra_ma_tran(ds_dot)
-                                st.success("Đã cập nhật đợt kiểm tra.")
-                                st.rerun()
-
-                    with em2:
-                        xoa_dot = st.checkbox(
-                            "Tôi xác nhận xóa đợt kiểm tra này khỏi danh sách HS.",
-                            key=f"exam_assignment_delete_confirm_{dot_id}"
-                        )
-                        if st.button(
-                            "🗑 XÓA ĐỢT KIỂM TRA",
-                            use_container_width=True,
-                            disabled=not xoa_dot,
-                            key=f"exam_assignment_delete_{dot_id}"
-                        ):
-                            ds_dot.pop(idx_dot)
-                            luu_dot_kiem_tra_ma_tran(ds_dot)
-                            st.success("Đã xóa đợt kiểm tra. Điểm/lịch sử đã nộp vẫn được giữ.")
-                            st.rerun()
+    with a2:
+        if st.button(
+            "🗑 XÓA MA TRẬN",
+            use_container_width=True,
+            key="exam_clear_matrix"
+        ):
+            st.session_state.ma_tran_de_gv = []
+            st.session_state.de_xem_truoc = None
+            st.rerun()
 
 
 
@@ -23672,7 +22811,7 @@ def giao_vien():
         "🧱 Xây dựng NH ôn tập / kiểm tra",
         "🎓 Xây dựng NH tốt nghiệp",
         "🏦 Ngân hàng câu hỏi",
-        "📝 Tạo đề",
+        "🧩 Tạo ma trận",
         "👥 Quản lý học sinh",
         "🧾 Điểm ôn / kiểm tra",
         "🗂️ Dữ liệu & tiến bộ HS",
@@ -23778,7 +22917,7 @@ def giao_vien():
 
         ngan_hang_cau_hoi()
 
-    elif menu == "📝 Tạo đề":
+    elif menu == "🧩 Tạo ma trận":
 
         tao_de_giao_vien()
 
