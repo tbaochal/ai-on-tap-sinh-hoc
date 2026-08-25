@@ -49,6 +49,27 @@ def _perf_debug_enabled():
         return False
 
 
+def _gv_lazy_gate(state_key, button_label, caption=None):
+    """Chỉ mở dữ liệu của đúng chức năng GV khi GV chủ động yêu cầu."""
+    if st.session_state.get(state_key, False):
+        return True
+
+    if st.button(
+        button_label,
+        type="primary",
+        use_container_width=True,
+        key=f"{state_key}_button"
+    ):
+        st.session_state[state_key] = True
+        st.rerun()
+
+    st.caption(
+        caption
+        or "Dữ liệu chưa được gọi. Chỉ khi GV bấm nút trên, app mới tải dữ liệu của mục này."
+    )
+    return False
+
+
 # ==========================================================
 # CẤU HÌNH
 # Bản TRẠM SINH HỌC: giữ nguyên đồng bộ ngân hàng + ảnh câu hỏi + cập nhật lời giải.
@@ -7577,6 +7598,12 @@ def tao_cau_hoi_ai():
         "Chế độ thủ công chỉ dùng khi GV muốn can thiệp vào một YCCĐ cụ thể."
     )
 
+    if not _gv_lazy_gate(
+        "_gv_load_build_bank",
+        "🧱 MỞ DỮ LIỆU XÂY DỰNG NGÂN HÀNG"
+    ):
+        return
+
     tab_auto, tab_manual = st.tabs([
         "⚡ Xây dựng tự động",
         "✍️ Tạo theo YCCĐ (nâng cao)"
@@ -10635,6 +10662,12 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
 def ngan_hang_cau_hoi():
 
     st.header("🏦 NGÂN HÀNG CÂU HỎI")
+
+    if not _gv_lazy_gate(
+        "_gv_load_question_bank",
+        "🏦 MỞ DỮ LIỆU NGÂN HÀNG CÂU HỎI"
+    ):
+        return
     st.caption(
         "Chỉ hiển thị các câu đã được GV duyệt. "
         "Độ phủ và xây dựng tự động được quản lý ở mục "
@@ -10642,6 +10675,7 @@ def ngan_hang_cau_hoi():
     )
 
     bank = doc_ngan_hang()
+    st.session_state["_gv_bank_count_display"] = len(bank or [])
 
     if not bank:
         st.info("Ngân hàng chưa có câu hỏi.")
@@ -12114,6 +12148,12 @@ def tao_de_giao_vien():
     st.header(
         "📝 TẠO ĐỀ TỪ NGÂN HÀNG"
     )
+
+    if not _gv_lazy_gate(
+        "_gv_load_exam_builder",
+        "📝 MỞ DỮ LIỆU TẠO ĐỀ"
+    ):
+        return
 
     # Nguồn dùng chung khi GV ra đề: ngân hàng ôn tập + câu đề thật đã đủ điều kiện.
     # Câu đề thật vẫn giữ nguyên hình/bảng và metadata Khối → Chương → Bài.
@@ -13676,6 +13716,12 @@ def quan_ly_hoc_sinh():
         "👥 QUẢN LÝ HỌC SINH"
     )
 
+    if not _gv_lazy_gate(
+        "_gv_load_students",
+        "👥 MỞ DỮ LIỆU QUẢN LÝ HỌC SINH"
+    ):
+        return
+
     st.caption(
         "GV tạo lớp và danh sách học sinh. "
         "App tự cấp mã duy nhất để dùng cho đăng nhập, lưu lịch sử và cá nhân hóa."
@@ -14370,6 +14416,22 @@ def phan_tich_lop_hoc():
         ds_lop,
         key="gv_class_analysis_class"
     )
+
+    analysis_key = f"class_analysis::{lop}"
+    if st.session_state.get("_gv_class_analysis_loaded_key") != analysis_key:
+        if st.button(
+            "📈 XEM TỔNG HỢP LỚP NÀY",
+            type="primary",
+            use_container_width=True,
+            key="gv_class_analysis_load_selected"
+        ):
+            st.session_state["_gv_class_analysis_loaded_key"] = analysis_key
+            st.rerun()
+
+        st.caption(
+            "Chưa gọi dữ liệu bài làm. App chỉ tổng hợp đúng lớp GV chọn khi bấm nút trên."
+        )
+        return
 
     with st.spinner("Đang tổng hợp dữ liệu của lớp..."):
         data = tong_hop_du_lieu_lop(lop)
@@ -15782,6 +15844,22 @@ def du_lieu_va_tien_bo_hoc_sinh():
         ds_lop,
         key="gv_data_progress_class"
     )
+
+    progress_key = f"progress::{lop}"
+    if st.session_state.get("_gv_progress_loaded_key") != progress_key:
+        if st.button(
+            "🗂️ XEM DỮ LIỆU LỚP NÀY",
+            type="primary",
+            use_container_width=True,
+            key="gv_progress_load_selected_class"
+        ):
+            st.session_state["_gv_progress_loaded_key"] = progress_key
+            st.rerun()
+
+        st.caption(
+            "Chưa gọi lịch sử làm bài. App chỉ tải dữ liệu của đúng lớp GV chọn khi bấm nút trên."
+        )
+        return
 
     rows = tong_hop_hoc_sinh_theo_lop(
         lop
@@ -19720,6 +19798,12 @@ def _sao_luu_ngan_hang_chinh_truoc_khi_don(bank, ly_do="don_hat_giong"):
 
 @_safe_fragment
 def ngan_hang_hat_giong():
+    if not _gv_lazy_gate(
+        "_gv_load_seed_bank",
+        "🌱 MỞ DỮ LIỆU NGÂN HÀNG HẠT GIỐNG"
+    ):
+        return
+
     st.header("🌱 NGÂN HÀNG HẠT GIỐNG")
     st.caption(
         "Kho nguồn đã được GV chuẩn hóa trước khi tải lên. App KHÔNG gọi AI để kiểm tra lại đáp án khi nhập; "
@@ -22723,6 +22807,12 @@ def hien_thi_kho_cau_tot_nghiep_da_nhap(bank):
 
 @_safe_fragment
 def xay_dung_ngan_hang_tot_nghiep():
+    if not _gv_lazy_gate(
+        "_gv_load_grad_bank",
+        "🎓 MỞ DỮ LIỆU NGÂN HÀNG TỐT NGHIỆP"
+    ):
+        return
+
     st.header("🎓 NGÂN HÀNG TỐT NGHIỆP – ĐỀ THẬT / ĐỀ THI THỬ")
     st.caption(
         "Phần này **không dùng AI để sáng tác câu mới**. GV đưa vào các đề thật/đề thi thử "
@@ -23365,14 +23455,28 @@ def _thoi_gian_sort_lich_su(lan):
 
 
 def loc_luot_co_diem_chinh_thuc(lop=None, che_do=None, ten_luot=None):
-    ds_hs = doc_danh_sach_hoc_sinh()
+    # Khi GV đã chọn lớp, chỉ đọc đúng roster + attempts của lớp đó.
+    # Kết quả lọc giữ nguyên như trước.
+    if lop and lop != "Tất cả":
+        ds_hs = _fast_get_students_class(
+            lop,
+            local_student_path=STUDENT_PATH
+        )
+        ds_luot = _fast_get_attempts_class(
+            lop,
+            local_history_path=HS_HISTORY_PATH
+        )
+    else:
+        ds_hs = doc_danh_sach_hoc_sinh()
+        ds_luot = doc_lich_su_hoc_sinh()
+
     map_hs = {
         str(x.get("ma_hoc_sinh", "")).strip().upper(): x
         for x in ds_hs
     }
 
     ket_qua = []
-    for lan in doc_lich_su_hoc_sinh():
+    for lan in ds_luot:
         mode = str(lan.get("che_do", "")).strip()
         if mode not in {
             CHE_DO_DE_GV,
@@ -23548,6 +23652,22 @@ def quan_ly_diem_on_kiem_tra():
             key="gv_score_mode"
         )
 
+    score_key = f"score::{lop}::{che_do}"
+    if st.session_state.get("_gv_score_loaded_key") != score_key:
+        if st.button(
+            "🧾 XEM ĐIỂM THEO LỰA CHỌN",
+            type="primary",
+            use_container_width=True,
+            key="gv_score_load_selected"
+        ):
+            st.session_state["_gv_score_loaded_key"] = score_key
+            st.rerun()
+
+        st.caption(
+            "Chưa gọi lịch sử điểm. App chỉ tải dữ liệu của đúng lớp và loại bài GV đã chọn."
+        )
+        return
+
     ds_co_so = loc_luot_co_diem_chinh_thuc(
         lop=lop,
         che_do=None if che_do == "Tất cả" else che_do
@@ -23694,6 +23814,26 @@ def giao_vien():
         "📈 Tổng hợp lớp & đề xuất dạy học"
     ]
 )
+
+        # Khi GV chuyển sang chức năng khác, không tự giữ trạng thái
+        # "đã tải" của mục trước. Mục mới chỉ tải khi GV chủ động chọn tiếp.
+        menu_truoc = st.session_state.get("_gv_last_menu")
+        if menu_truoc != menu:
+            for _key in [
+                "_gv_load_seed_bank",
+                "_gv_load_build_bank",
+                "_gv_load_grad_bank",
+                "_gv_load_question_bank",
+                "_gv_load_exam_builder",
+                "_gv_load_students",
+            ]:
+                st.session_state.pop(_key, None)
+
+            # Các trang theo lớp cũng phải chọn lại đúng lớp trước khi tải.
+            st.session_state.pop("_gv_progress_loaded_key", None)
+            st.session_state.pop("_gv_class_analysis_loaded_key", None)
+            st.session_state.pop("_gv_score_loaded_key", None)
+            st.session_state["_gv_last_menu"] = menu
 
         st.divider()
 
