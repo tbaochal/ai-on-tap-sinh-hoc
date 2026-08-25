@@ -451,6 +451,62 @@ def luu_ngan_hang(data):
 
 
 
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _gv_students_class_cached(lop):
+    """Cache riêng khu GV: danh sách HS đúng lớp."""
+    return _fast_get_students_class(
+        lop,
+        local_student_path=STUDENT_PATH
+    ) or []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _gv_attempts_student_cached(ma_hs):
+    """Cache riêng khu GV: lịch sử đúng 1 học sinh."""
+    return _fast_get_attempts_student(
+        ma_hs,
+        local_history_path=HS_HISTORY_PATH
+    ) or []
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _gv_attempts_class_cached(lop):
+    """Cache riêng khu GV: lịch sử đúng 1 lớp."""
+    return _fast_get_attempts_class(
+        lop,
+        local_history_path=HS_HISTORY_PATH
+    ) or []
+
+
+def _gv_doc_list_verified_local_first(path, expected_count=None):
+    """
+    Đường đọc nhanh CHỈ cho thao tác GV:
+    - ưu tiên file local nếu số phần tử khớp số đếm cloud;
+    - nếu không khớp mới đọc Supabase;
+    - không thay đổi cách ghi hay schema.
+    """
+    try:
+        local = _doc_json_local(path, [])
+    except Exception:
+        local = []
+
+    if isinstance(local, list):
+        try:
+            exp = int(expected_count) if expected_count is not None else None
+        except Exception:
+            exp = None
+
+        if exp is not None and exp >= 0 and len(local) == exp:
+            return local
+
+    try:
+        cloud = _doc_shared_list_cached(path)
+        return cloud if isinstance(cloud, list) else []
+    except Exception:
+        return local if isinstance(local, list) else []
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def _gv_lay_danh_sach_lop_nhe():
     """Lấy tên lớp cho khu GV mà không tải toàn bộ dữ liệu học sinh/lượt làm."""
@@ -13603,10 +13659,7 @@ def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None
 @st.cache_data(ttl=60, show_spinner=False)
 def _gv_tong_hop_lop_nhe(lop_chon):
     """Tổng hợp lớp chỉ từ attempts đúng lớp; không cần tải roster học sinh."""
-    lich_su = _fast_get_attempts_class(
-        lop_chon,
-        local_history_path=HS_HISTORY_PATH
-    ) if lop_chon else []
+    lich_su = _gv_attempts_class_cached(lop_chon) if lop_chon else []
 
     tong_hop = {
         "so_luot": len(lich_su),
@@ -15130,10 +15183,7 @@ def du_lieu_va_tien_bo_hoc_sinh():
     if not lop:
         return
 
-    ds_hs_lop = _fast_get_students_class(
-        lop,
-        local_student_path=STUDENT_PATH
-    )
+    ds_hs_lop = _gv_students_class_cached(lop)
 
     if not ds_hs_lop:
         st.info("Lớp này chưa có dữ liệu học sinh.")
@@ -15164,9 +15214,7 @@ def du_lieu_va_tien_bo_hoc_sinh():
             ma = str(
                 ds_hs_lop[idx].get("ma_hoc_sinh", "")
             ).strip().upper()
-            lich_su_hs = lay_lich_su_cua_hoc_sinh(
-                ma
-            )
+            lich_su_hs = _gv_attempts_student_cached(ma)
 
             tb = tinh_tien_bo_hoc_sinh(
                 lich_su_hs
@@ -18925,29 +18973,35 @@ def ngan_hang_hat_giong():
             status_box = st.empty()
             status_box.info("1/4 Đang đối chiếu dữ liệu hiện có...")
 
-            # Hai kho độc lập nên đọc SONG SONG thay vì chờ kho Hạt giống xong
-            # mới đọc tiếp Ngân hàng chung. Với kho lớn, bước này giảm đáng kể
-            # thời gian chờ mà không thay đổi dữ liệu hay quy tắc chống trùng.
+            # Đường nhanh giống cơ chế các bản chạy nhanh trước:
+            # trước hết chỉ lấy SỐ LƯỢNG (nhẹ), sau đó dùng file local nếu khớp.
+            # Chỉ khi local lệch cloud mới tải document lớn từ Supabase.
             #
-            # Ngân hàng chung dùng dữ liệu THÔ ở bước nhập hạt giống:
-            # chống trùng chỉ cần nội dung/nguồn/id, không cần quét lại toàn bộ
-            # 1.000+ câu để gán chỉ báo trước khi so trùng.
-            from concurrent.futures import ThreadPoolExecutor
+            # Nhờ vậy trên máy GV, 1/3/5 file không phải chờ tải lại toàn bộ
+            # 1.000+ câu của Ngân hàng chung ở mỗi lần nhập.
+            try:
+                seed_expected = int(_document_count_cached(SEED_BANK_PATH) or 0)
+            except Exception:
+                seed_expected = 0
 
-            def _seed_doc_list_raw(_path):
-                _data = _doc_document_shared(_path, [])
-                return _data if isinstance(_data, list) else []
+            try:
+                main_expected = _fast_questions_v2_count()
+                main_expected = int(main_expected) if main_expected is not None else None
+            except Exception:
+                main_expected = None
 
             if isinstance(_seed_bank_runtime, list):
                 bank_seed = _seed_bank_runtime
-                with ThreadPoolExecutor(max_workers=1) as _pool:
-                    bank_main = _pool.submit(_seed_doc_list_raw, BANK_PATH).result()
             else:
-                with ThreadPoolExecutor(max_workers=2) as _pool:
-                    _future_seed = _pool.submit(_seed_doc_list_raw, SEED_BANK_PATH)
-                    _future_main = _pool.submit(_seed_doc_list_raw, BANK_PATH)
-                    bank_seed = _future_seed.result()
-                    bank_main = _future_main.result()
+                bank_seed = _gv_doc_list_verified_local_first(
+                    SEED_BANK_PATH,
+                    expected_count=seed_expected if seed_expected > 0 else None
+                )
+
+            bank_main = _gv_doc_list_verified_local_first(
+                BANK_PATH,
+                expected_count=main_expected
+            )
 
             # Index NH chính đúng 1 lần cho cả lượt nhập.
             bank_exact_index = _seed_tao_index_trung_chinh_xac_ngan_hang(bank_main)
@@ -19112,6 +19166,14 @@ def ngan_hang_hat_giong():
             _seed_sync_seconds = time.perf_counter() - _seed_sync_t0
             _seed_bank_runtime = bank_seed
             _main_bank_runtime = bank_main
+
+            # Làm mới cache đọc chung sau khi vừa ghi dữ liệu.
+            # Không tác động tới logic HS; chỉ tránh GV đọc lại bản cũ.
+            try:
+                _doc_shared_list_cached.clear()
+            except Exception:
+                pass
+
             ok_seed_save = True  # local được ghi trong hàm đồng bộ
             ok_seed_cloud = not _co_pending_sync(SEED_BANK_PATH)
             ok_bank_cloud = not _co_pending_sync(BANK_PATH)
@@ -22626,14 +22688,8 @@ def loc_luot_co_diem_chinh_thuc(lop=None, che_do=None, ten_luot=None):
     # Khi GV đã chọn lớp, chỉ đọc đúng roster + attempts của lớp đó.
     # Kết quả lọc giữ nguyên như trước.
     if lop and lop != "Tất cả":
-        ds_hs = _fast_get_students_class(
-            lop,
-            local_student_path=STUDENT_PATH
-        )
-        ds_luot = _fast_get_attempts_class(
-            lop,
-            local_history_path=HS_HISTORY_PATH
-        )
+        ds_hs = _gv_students_class_cached(lop)
+        ds_luot = _gv_attempts_class_cached(lop)
     else:
         ds_hs = doc_danh_sach_hoc_sinh()
         ds_luot = doc_lich_su_hoc_sinh()
