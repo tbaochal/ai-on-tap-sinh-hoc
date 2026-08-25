@@ -23677,7 +23677,8 @@ def giao_vien():
         "🧾 Điểm ôn / kiểm tra",
         "🗂️ Dữ liệu & tiến bộ HS",
         "📈 Tổng hợp lớp & đề xuất dạy học"
-    ]
+    ],
+    index=None
 )
 
         st.divider()
@@ -23736,6 +23737,11 @@ def giao_vien():
             st.rerun()
 
     hien_thi_dau_trang_tram_sinh_hoc("giaovien")
+
+    # Khi mới vào Không gian GV, chưa tự mở bất kỳ chức năng nào.
+    # Nhờ đó Kho YCCĐ không còn bị tải/render mặc định.
+    if not menu:
+        return
 
     st.markdown(
         f"""
