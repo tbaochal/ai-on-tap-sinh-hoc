@@ -20024,315 +20024,364 @@ def ngan_hang_hat_giong():
             if bao_cao:
                 st.dataframe(pd.DataFrame(bao_cao), use_container_width=True, hide_index=True)
 
-    bank_seed = doc_ngan_hang_hat_giong()
+    che_do_seed = st.selectbox(
+        "Xem / quản lý Ngân hàng hạt giống",
+        [
+            "🧭 Độ phủ & danh sách câu hạt giống",
+            "🗑️ Quản lý / xóa file nguồn hạt giống",
+            "🛠️ Đọc lại metadata nguồn hiện có",
+            "🧹 Dọn câu hạt giống đã vào Ngân hàng câu hỏi",
+        ],
+        index=None,
+        placeholder="Chọn nội dung",
+        key="seed_manage_mode"
+    )
+
+    if not che_do_seed:
+        return
+
+    bank_seed = (
+        _seed_bank_runtime
+        if isinstance(_seed_bank_runtime, list)
+        else doc_ngan_hang_hat_giong()
+    )
+
     st.metric("Số câu hạt giống hiện có", len(bank_seed))
+
     if _co_pending_sync(SEED_BANK_PATH) or _co_pending_sync(BANK_PATH):
         st.warning(
             "⚠️ Có dữ liệu local mới hơn bản Supabase vì lần ghi cloud gần nhất chưa hoàn tất. "
             "App đang ưu tiên bản local để không làm mất câu."
         )
 
-    # ======================================================
-    # DỌN CÁC CÂU ĐÃ ĐỒNG BỘ SANG NGÂN HÀNG CHÍNH
-    # Kể cả khi file/câu tương ứng đã bị xóa khỏi Ngân hàng hạt giống.
-    # Dựa trên dấu vết bền vững: nguon_seed_id / nguon_tao / nguon_file.
-    # ======================================================
-    bank_main_hien_tai = (
-        _main_bank_runtime
-        if isinstance(_main_bank_runtime, list)
-        else doc_ngan_hang()
-    )
+    if che_do_seed == "🧭 Độ phủ & danh sách câu hạt giống":
+        if bank_seed:
+            san_sang = thieu_yccd = thieu_dap_an = 0
+            for q in bank_seed:
+                ok, ly_do = _seed_du_dieu_kien_dong_bo(q)
+                if ok:
+                    san_sang += 1
+                elif ly_do == "Thiếu YCCĐ":
+                    thieu_yccd += 1
+                elif ly_do == "Thiếu đáp án nguồn":
+                    thieu_dap_an += 1
 
-    # Kiểm tra chênh lệch tên file nguồn giữa Hạt giống và NH chung.
-    nguon_seed_hien_co = sorted({
-        str(x.get("nguon_file", "") or "").strip()
-        for x in bank_seed
-        if str(x.get("nguon_file", "") or "").strip()
-    })
-    nguon_main_da_luu = sorted({
-        ten
-        for q in bank_main_hien_tai
-        for ten in _main_cac_nguon_hat_giong(q)
-        if ten
-    })
-    nguon_main_thieu = [x for x in nguon_seed_hien_co if x not in set(nguon_main_da_luu)]
+            c1, c2, c3 = st.columns(3)
+            c1.metric("✅ Đủ metadata để dùng", san_sang)
+            c2.metric("⚠️ Thiếu YCCĐ", thieu_yccd)
+            c3.metric("⚠️ Thiếu đáp án", thieu_dap_an)
 
-    if nguon_main_thieu:
-        st.warning(
-            "NH chung đang thiếu dấu vết file nguồn cho: "
-            + ", ".join(nguon_main_thieu)
-            + ". Các câu không nhất thiết bị mất; nhiều câu có thể đã bị gộp vì trùng chính xác nhưng phiên bản cũ không lưu thêm tên file nguồn."
-        )
-        if st.button(
-            "🔗 KHÔI PHỤC LIÊN KẾT FILE NGUỒN TRONG NH CHUNG",
-            use_container_width=True,
-            key="seed_repair_main_source_links"
-        ):
-            with st.spinner("Đang đối chiếu hạt giống với Ngân hàng câu hỏi..."):
-                da_chuyen_repair, bo_qua_repair = dong_bo_hat_giong_an_toan_sang_ngan_hang(bank_seed)
-            st.success(
-                f"Đã khôi phục dấu vết nguồn và đồng bộ lại toàn bộ hạt giống. "
-                f"Thêm mới {da_chuyen_repair} câu chưa có; {bo_qua_repair} câu đã có/trùng được giữ hoặc cập nhật liên kết nguồn."
-            )
-            st.rerun()
-
-    ds_main_tu_seed = [
-        q for q in bank_main_hien_tai
-        if _main_la_cau_tu_hat_giong(q)
-    ]
-
-    if ds_main_tu_seed:
-        with st.expander(
-            "🧹 Dọn câu hạt giống đã vào Ngân hàng câu hỏi",
-            expanded=False
-        ):
-            st.warning(
-                "Các câu này vẫn nhận diện được ngay cả khi file hạt giống đã bị xóa khỏi app, "
-                "vì bản trong Ngân hàng câu hỏi còn lưu mã hạt giống và tên file nguồn. "
-                "Chức năng dưới đây KHÔNG đụng đến Ngân hàng tốt nghiệp."
-            )
-
-            dem_main_theo_file = {}
-            for q in ds_main_tu_seed:
-                ds_nguon_q = _main_cac_nguon_hat_giong(q) or ["(Không rõ file nguồn)"]
-                for ten in ds_nguon_q:
-                    dem_main_theo_file[ten] = dem_main_theo_file.get(ten, 0) + 1
-
-            rows_main_seed = []
-            for ten in sorted(dem_main_theo_file):
-                ds_file = [
-                    q for q in ds_main_tu_seed
-                    if ten in (_main_cac_nguon_hat_giong(q) or ["(Không rõ file nguồn)"])
-                ]
-                co_truc_quan = sum(
-                    1 for q in ds_file
-                    if (q.get("tai_nguyen_truc_quan") or q.get("du_lieu_truc_quan"))
-                )
-                rows_main_seed.append({
-                    "File nguồn còn lưu trong NH chung": ten,
-                    "Số câu đã đồng bộ": len(ds_file),
-                    "Có ảnh/bảng đang lưu": co_truc_quan,
-                    "Không có dữ liệu trực quan": len(ds_file) - co_truc_quan,
-                })
-
-            st.dataframe(
-                pd.DataFrame(rows_main_seed),
-                use_container_width=True,
-                hide_index=True,
-                height=min(360, 70 + 35 * len(rows_main_seed))
-            )
-
-            st.caption(
-                "Nếu một file cũ từng bị mất ảnh/đồ thị, hãy chọn đúng tên file đó và xóa toàn bộ "
-                "các bản đã đồng bộ; sau đó nhập lại DOCX gốc bằng parser mới."
-            )
-
-            files_main_xoa = st.multiselect(
-                "Chọn file nguồn có các câu cần xóa khỏi Ngân hàng câu hỏi",
-                sorted(dem_main_theo_file),
-                key="seed_cleanup_main_sources"
-            )
-
-            if files_main_xoa:
-                tap_main_xoa = set(files_main_xoa)
-                ds_se_xoa_main = [
-                    q for q in ds_main_tu_seed
-                    if any(
-                        ten in tap_main_xoa
-                        for ten in (_main_cac_nguon_hat_giong(q) or ["(Không rõ file nguồn)"])
-                    )
-                ]
-                st.error(
-                    f"Sẽ xóa **{len(ds_se_xoa_main)} câu** đã đồng bộ từ "
-                    f"**{len(files_main_xoa)} file hạt giống** khỏi Ngân hàng câu hỏi."
-                )
-                xac_nhan_main = st.checkbox(
-                    "Tôi xác nhận xóa các câu này khỏi Ngân hàng câu hỏi. App sẽ tự sao lưu trước khi xóa.",
-                    key="seed_cleanup_main_confirm"
+            if thieu_yccd or thieu_dap_an:
+                st.info(
+                    "Các câu thiếu YCCĐ/đáp án vẫn được giữ trong Ngân hàng hạt giống "
+                    "nhưng chưa tự chuyển sang Ngân hàng câu hỏi. Nên hoàn thiện file nguồn "
+                    "bên ngoài app rồi nhập lại; app không dùng AI để đoán bổ sung."
                 )
 
-                if st.button(
-                    "🗑️ XÓA CÁC CÂU ĐÃ ĐỒNG BỘ TỪ FILE ĐÃ CHỌN",
-                    type="primary",
-                    use_container_width=True,
-                    key="seed_cleanup_main_btn",
-                    disabled=not xac_nhan_main
-                ):
-                    ids_xoa = {str(q.get("id", "")) for q in ds_se_xoa_main}
-                    backup_path = _sao_luu_ngan_hang_chinh_truoc_khi_don(
-                        bank_main_hien_tai,
-                        "truoc_xoa_cau_hat_giong"
+        if bank_seed:
+            with st.expander("🧭 Độ phủ & danh sách câu hạt giống", expanded=False):
+                st.markdown("### 🧭 Độ phủ hạt giống theo năng lực – chỉ báo")
+                rows_seed_cov = thong_ke_hat_giong_nang_luc_chi_bao(bank_seed)
+    
+                if rows_seed_cov:
+                    st.dataframe(
+                        pd.DataFrame(rows_seed_cov),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=300
                     )
-                    bank_main_moi = [
-                        q for q in bank_main_hien_tai
-                        if str(q.get("id", "")) not in ids_xoa
-                    ]
-                    luu_ngan_hang(bank_main_moi)
-                    st.success(
-                        f"Đã xóa {len(ids_xoa)} câu hạt giống khỏi Ngân hàng câu hỏi. "
-                        f"Đã sao lưu trước khi xóa tại: {os.path.basename(backup_path)}"
+    
+                chua_xd = sum(
+                    1 for x in bank_seed
+                    if not str(x.get("thanh_phan_nang_luc", "")).strip()
+                )
+    
+                if chua_xd:
+                    st.warning(
+                        f"Còn {chua_xd} câu chưa xác định được năng lực. "
+                        "App vẫn giữ lại; nên hoàn thiện metadata ở file nguồn rồi nhập lại khi cần."
                     )
+    
+                st.info(
+                    "Nguyên tắc: **hạt giống + tạo mới song song**. "
+                    "App dùng hạt giống làm mẫu định hướng, đồng thời tạo thêm câu mới "
+                    "và ưu tiên bù các năng lực/chỉ báo còn thiếu."
+                )
+                nguon_seed = sorted({str(x.get("nguon_file","")) for x in bank_seed if x.get("nguon_file")})
+                nguon_chon = st.selectbox("Lọc theo file nguồn", ["Tất cả"] + nguon_seed, key="seed_source_filter")
+                ds_seed_hien = [x for x in bank_seed if nguon_chon == "Tất cả" or x.get("nguon_file") == nguon_chon]
+                st.dataframe(pd.DataFrame([{"Câu gốc":x.get("so_cau_goc",""),"Dạng gợi ý":x.get("dang_cau_goi_y",""),"Nguồn":x.get("nguon_file",""),"Trạng thái nguồn":x.get("kiem_tra_dap_an","Nguồn đã chuẩn hóa"),"Trạng thái":x.get("trang_thai","")} for x in ds_seed_hien[:300]]), use_container_width=True, hide_index=True, height=360)
+                with st.expander("👁️ Xem nội dung một câu hạt giống", expanded=False):
+                    labels=[f"{i+1}. Câu {x.get('so_cau_goc','')} • {x.get('dang_cau_goi_y','')}" for i,x in enumerate(ds_seed_hien)]
+                    if labels:
+                        label = st.selectbox(
+                            "Chọn câu",
+                            labels,
+                            key="seed_preview_select"
+                        )
+                        idx = labels.index(label)
+                        seed_xem = ds_seed_hien[idx]
+                        st.write(
+                            seed_xem.get("noi_dung_hien_thi", "")
+                            or seed_xem.get("noi_dung_goc", "")
+                        )
+                        _seed_hien_thi_tai_nguyen(seed_xem)
+    elif che_do_seed == "🗑️ Quản lý / xóa file nguồn hạt giống":
+        # ======================================================
+        # QUẢN LÝ / XÓA MỘT HOẶC NHIỀU FILE NGUỒN HẠT GIỐNG
+        # ======================================================
+        if bank_seed:
+            nguon_seed_all = sorted({
+                str(x.get("nguon_file", "")).strip()
+                for x in bank_seed
+                if str(x.get("nguon_file", "")).strip()
+            })
+
+            if nguon_seed_all:
+                with st.expander("🗑️ Quản lý / xóa file nguồn hạt giống", expanded=False):
+                    st.caption(
+                        "Chọn một hoặc nhiều file nguồn để xóa toàn bộ câu hạt giống "
+                        "được nhập từ các file đó. Thao tác này chỉ ảnh hưởng Ngân hàng hạt giống."
+                    )
+
+                    dem_theo_file = {
+                        ten: sum(
+                            1 for x in bank_seed
+                            if str(x.get("nguon_file", "")).strip() == ten
+                        )
+                        for ten in nguon_seed_all
+                    }
+
+                    st.dataframe(
+                        pd.DataFrame([
+                            {"File nguồn": ten, "Số câu hạt giống": dem_theo_file.get(ten, 0)}
+                            for ten in nguon_seed_all
+                        ]),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=min(320, 42 + 35 * len(nguon_seed_all))
+                    )
+
+                    files_xoa = st.multiselect(
+                        "Chọn file muốn xóa",
+                        nguon_seed_all,
+                        key="seed_delete_source_files"
+                    )
+
+                    so_cau_se_xoa = sum(
+                        dem_theo_file.get(ten, 0)
+                        for ten in files_xoa
+                    )
+
+                    if files_xoa:
+                        st.warning(
+                            f"Đã chọn **{len(files_xoa)} file**; sẽ xóa "
+                            f"**{so_cau_se_xoa} câu hạt giống** thuộc các file này."
+                        )
+
+                        xac_nhan_xoa = st.checkbox(
+                            "Tôi xác nhận muốn xóa các câu hạt giống thuộc những file đã chọn.",
+                            key="seed_delete_confirm"
+                        )
+
+                        if st.button(
+                            "🗑️ XÓA CÁC FILE ĐÃ CHỌN",
+                            type="primary",
+                            use_container_width=True,
+                            key="seed_delete_files_btn",
+                            disabled=not xac_nhan_xoa
+                        ):
+                            tap_xoa = set(files_xoa)
+                            seed_bi_xoa = [
+                                x for x in bank_seed
+                                if str(x.get("nguon_file", "")).strip() in tap_xoa
+                            ]
+                            bank_moi = [
+                                x for x in bank_seed
+                                if str(x.get("nguon_file", "")).strip() not in tap_xoa
+                            ]
+                            # Chỉ dọn media không còn được ngân hàng chính tham chiếu.
+                            _seed_don_media_khi_xoa_nguon(seed_bi_xoa)
+                            luu_ngan_hang_hat_giong(bank_moi)
+                            st.success(
+                                f"Đã xóa {so_cau_se_xoa} câu hạt giống từ "
+                                f"{len(files_xoa)} file nguồn."
+                            )
+                            st.rerun()
+
+    elif che_do_seed == "🛠️ Đọc lại metadata nguồn hiện có":
+        if bank_seed:
+            with st.expander("🛠️ Đọc lại metadata nguồn hiện có", expanded=False):
+                st.caption("Chỉ đọc lại metadata bằng parser cục bộ; không kiểm tra đáp án bằng AI và không gọi Gemini.")
+                if st.button("🔄 ĐỌC LẠI METADATA HIỆN CÓ", use_container_width=True, key="seed_reparse_existing"):
+                    bank_seed, nfix = doc_lai_metadata_hat_giong_hien_co(bank_seed)
+                    for q in bank_seed:
+                        q["kiem_tra_dap_an"] = "Nguồn đã chuẩn hóa trước khi nhập"
+                        q["trang_thai_kiem_tra_dap_an"] = "Không kiểm tra AI"
+                        q["gv_da_duyet_dap_an"] = True
+                        q["duoc_dung_lam_hat_giong"] = True
+                        q["nguon_da_kiem_tra_truoc"] = True
+                    luu_ngan_hang_hat_giong(bank_seed)
+                    da_chuyen, _ = dong_bo_hat_giong_an_toan_sang_ngan_hang(bank_seed)
+                    st.success(f"Đã đọc lại {len(bank_seed)} câu; cập nhật/làm sạch {nfix} câu và đồng bộ thêm {da_chuyen} câu không trùng.")
                     st.rerun()
 
-    if bank_seed:
-        with st.expander("🛠️ Đọc lại metadata nguồn hiện có", expanded=False):
-            st.caption("Chỉ đọc lại metadata bằng parser cục bộ; không kiểm tra đáp án bằng AI và không gọi Gemini.")
-            if st.button("🔄 ĐỌC LẠI METADATA HIỆN CÓ", use_container_width=True, key="seed_reparse_existing"):
-                bank_seed, nfix = doc_lai_metadata_hat_giong_hien_co(bank_seed)
-                for q in bank_seed:
-                    q["kiem_tra_dap_an"] = "Nguồn đã chuẩn hóa trước khi nhập"
-                    q["trang_thai_kiem_tra_dap_an"] = "Không kiểm tra AI"
-                    q["gv_da_duyet_dap_an"] = True
-                    q["duoc_dung_lam_hat_giong"] = True
-                    q["nguon_da_kiem_tra_truoc"] = True
-                luu_ngan_hang_hat_giong(bank_seed)
-                da_chuyen, _ = dong_bo_hat_giong_an_toan_sang_ngan_hang(bank_seed)
-                st.success(f"Đã đọc lại {len(bank_seed)} câu; cập nhật/làm sạch {nfix} câu và đồng bộ thêm {da_chuyen} câu không trùng.")
+            san_sang = thieu_yccd = thieu_dap_an = 0
+            for q in bank_seed:
+                ok, ly_do = _seed_du_dieu_kien_dong_bo(q)
+                if ok: san_sang += 1
+                elif ly_do == "Thiếu YCCĐ": thieu_yccd += 1
+                elif ly_do == "Thiếu đáp án nguồn": thieu_dap_an += 1
+            c1, c2, c3 = st.columns(3)
+            c1.metric("✅ Đủ metadata để dùng", san_sang)
+            c2.metric("⚠️ Thiếu YCCĐ", thieu_yccd)
+            c3.metric("⚠️ Thiếu đáp án", thieu_dap_an)
+            if thieu_yccd or thieu_dap_an:
+                st.info("Các câu thiếu YCCĐ/đáp án vẫn được giữ trong Ngân hàng hạt giống nhưng chưa tự chuyển sang Ngân hàng câu hỏi. Nên hoàn thiện file nguồn bên ngoài app rồi nhập lại; app không dùng AI để đoán bổ sung.")
+
+    elif che_do_seed == "🧹 Dọn câu hạt giống đã vào Ngân hàng câu hỏi":
+        # ======================================================
+        # DỌN CÁC CÂU ĐÃ ĐỒNG BỘ SANG NGÂN HÀNG CHÍNH
+        # Kể cả khi file/câu tương ứng đã bị xóa khỏi Ngân hàng hạt giống.
+        # Dựa trên dấu vết bền vững: nguon_seed_id / nguon_tao / nguon_file.
+        # ======================================================
+        bank_main_hien_tai = (
+            _main_bank_runtime
+            if isinstance(_main_bank_runtime, list)
+            else doc_ngan_hang()
+        )
+
+        # Kiểm tra chênh lệch tên file nguồn giữa Hạt giống và NH chung.
+        nguon_seed_hien_co = sorted({
+            str(x.get("nguon_file", "") or "").strip()
+            for x in bank_seed
+            if str(x.get("nguon_file", "") or "").strip()
+        })
+        nguon_main_da_luu = sorted({
+            ten
+            for q in bank_main_hien_tai
+            for ten in _main_cac_nguon_hat_giong(q)
+            if ten
+        })
+        nguon_main_thieu = [x for x in nguon_seed_hien_co if x not in set(nguon_main_da_luu)]
+
+        if nguon_main_thieu:
+            st.warning(
+                "NH chung đang thiếu dấu vết file nguồn cho: "
+                + ", ".join(nguon_main_thieu)
+                + ". Các câu không nhất thiết bị mất; nhiều câu có thể đã bị gộp vì trùng chính xác nhưng phiên bản cũ không lưu thêm tên file nguồn."
+            )
+            if st.button(
+                "🔗 KHÔI PHỤC LIÊN KẾT FILE NGUỒN TRONG NH CHUNG",
+                use_container_width=True,
+                key="seed_repair_main_source_links"
+            ):
+                with st.spinner("Đang đối chiếu hạt giống với Ngân hàng câu hỏi..."):
+                    da_chuyen_repair, bo_qua_repair = dong_bo_hat_giong_an_toan_sang_ngan_hang(bank_seed)
+                st.success(
+                    f"Đã khôi phục dấu vết nguồn và đồng bộ lại toàn bộ hạt giống. "
+                    f"Thêm mới {da_chuyen_repair} câu chưa có; {bo_qua_repair} câu đã có/trùng được giữ hoặc cập nhật liên kết nguồn."
+                )
                 st.rerun()
 
-        san_sang = thieu_yccd = thieu_dap_an = 0
-        for q in bank_seed:
-            ok, ly_do = _seed_du_dieu_kien_dong_bo(q)
-            if ok: san_sang += 1
-            elif ly_do == "Thiếu YCCĐ": thieu_yccd += 1
-            elif ly_do == "Thiếu đáp án nguồn": thieu_dap_an += 1
-        c1, c2, c3 = st.columns(3)
-        c1.metric("✅ Đủ metadata để dùng", san_sang)
-        c2.metric("⚠️ Thiếu YCCĐ", thieu_yccd)
-        c3.metric("⚠️ Thiếu đáp án", thieu_dap_an)
-        if thieu_yccd or thieu_dap_an:
-            st.info("Các câu thiếu YCCĐ/đáp án vẫn được giữ trong Ngân hàng hạt giống nhưng chưa tự chuyển sang Ngân hàng câu hỏi. Nên hoàn thiện file nguồn bên ngoài app rồi nhập lại; app không dùng AI để đoán bổ sung.")
+        ds_main_tu_seed = [
+            q for q in bank_main_hien_tai
+            if _main_la_cau_tu_hat_giong(q)
+        ]
 
-    # ======================================================
-    # QUẢN LÝ / XÓA MỘT HOẶC NHIỀU FILE NGUỒN HẠT GIỐNG
-    # ======================================================
-    if bank_seed:
-        nguon_seed_all = sorted({
-            str(x.get("nguon_file", "")).strip()
-            for x in bank_seed
-            if str(x.get("nguon_file", "")).strip()
-        })
-
-        if nguon_seed_all:
-            with st.expander("🗑️ Quản lý / xóa file nguồn hạt giống", expanded=False):
-                st.caption(
-                    "Chọn một hoặc nhiều file nguồn để xóa toàn bộ câu hạt giống "
-                    "được nhập từ các file đó. Thao tác này chỉ ảnh hưởng Ngân hàng hạt giống."
+        if ds_main_tu_seed:
+            with st.expander(
+                "🧹 Dọn câu hạt giống đã vào Ngân hàng câu hỏi",
+                expanded=False
+            ):
+                st.warning(
+                    "Các câu này vẫn nhận diện được ngay cả khi file hạt giống đã bị xóa khỏi app, "
+                    "vì bản trong Ngân hàng câu hỏi còn lưu mã hạt giống và tên file nguồn. "
+                    "Chức năng dưới đây KHÔNG đụng đến Ngân hàng tốt nghiệp."
                 )
 
-                dem_theo_file = {
-                    ten: sum(
-                        1 for x in bank_seed
-                        if str(x.get("nguon_file", "")).strip() == ten
+                dem_main_theo_file = {}
+                for q in ds_main_tu_seed:
+                    ds_nguon_q = _main_cac_nguon_hat_giong(q) or ["(Không rõ file nguồn)"]
+                    for ten in ds_nguon_q:
+                        dem_main_theo_file[ten] = dem_main_theo_file.get(ten, 0) + 1
+
+                rows_main_seed = []
+                for ten in sorted(dem_main_theo_file):
+                    ds_file = [
+                        q for q in ds_main_tu_seed
+                        if ten in (_main_cac_nguon_hat_giong(q) or ["(Không rõ file nguồn)"])
+                    ]
+                    co_truc_quan = sum(
+                        1 for q in ds_file
+                        if (q.get("tai_nguyen_truc_quan") or q.get("du_lieu_truc_quan"))
                     )
-                    for ten in nguon_seed_all
-                }
+                    rows_main_seed.append({
+                        "File nguồn còn lưu trong NH chung": ten,
+                        "Số câu đã đồng bộ": len(ds_file),
+                        "Có ảnh/bảng đang lưu": co_truc_quan,
+                        "Không có dữ liệu trực quan": len(ds_file) - co_truc_quan,
+                    })
 
                 st.dataframe(
-                    pd.DataFrame([
-                        {"File nguồn": ten, "Số câu hạt giống": dem_theo_file.get(ten, 0)}
-                        for ten in nguon_seed_all
-                    ]),
+                    pd.DataFrame(rows_main_seed),
                     use_container_width=True,
                     hide_index=True,
-                    height=min(320, 42 + 35 * len(nguon_seed_all))
+                    height=min(360, 70 + 35 * len(rows_main_seed))
                 )
 
-                files_xoa = st.multiselect(
-                    "Chọn file muốn xóa",
-                    nguon_seed_all,
-                    key="seed_delete_source_files"
+                st.caption(
+                    "Nếu một file cũ từng bị mất ảnh/đồ thị, hãy chọn đúng tên file đó và xóa toàn bộ "
+                    "các bản đã đồng bộ; sau đó nhập lại DOCX gốc bằng parser mới."
                 )
 
-                so_cau_se_xoa = sum(
-                    dem_theo_file.get(ten, 0)
-                    for ten in files_xoa
+                files_main_xoa = st.multiselect(
+                    "Chọn file nguồn có các câu cần xóa khỏi Ngân hàng câu hỏi",
+                    sorted(dem_main_theo_file),
+                    key="seed_cleanup_main_sources"
                 )
 
-                if files_xoa:
-                    st.warning(
-                        f"Đã chọn **{len(files_xoa)} file**; sẽ xóa "
-                        f"**{so_cau_se_xoa} câu hạt giống** thuộc các file này."
+                if files_main_xoa:
+                    tap_main_xoa = set(files_main_xoa)
+                    ds_se_xoa_main = [
+                        q for q in ds_main_tu_seed
+                        if any(
+                            ten in tap_main_xoa
+                            for ten in (_main_cac_nguon_hat_giong(q) or ["(Không rõ file nguồn)"])
+                        )
+                    ]
+                    st.error(
+                        f"Sẽ xóa **{len(ds_se_xoa_main)} câu** đã đồng bộ từ "
+                        f"**{len(files_main_xoa)} file hạt giống** khỏi Ngân hàng câu hỏi."
                     )
-
-                    xac_nhan_xoa = st.checkbox(
-                        "Tôi xác nhận muốn xóa các câu hạt giống thuộc những file đã chọn.",
-                        key="seed_delete_confirm"
+                    xac_nhan_main = st.checkbox(
+                        "Tôi xác nhận xóa các câu này khỏi Ngân hàng câu hỏi. App sẽ tự sao lưu trước khi xóa.",
+                        key="seed_cleanup_main_confirm"
                     )
 
                     if st.button(
-                        "🗑️ XÓA CÁC FILE ĐÃ CHỌN",
+                        "🗑️ XÓA CÁC CÂU ĐÃ ĐỒNG BỘ TỪ FILE ĐÃ CHỌN",
                         type="primary",
                         use_container_width=True,
-                        key="seed_delete_files_btn",
-                        disabled=not xac_nhan_xoa
+                        key="seed_cleanup_main_btn",
+                        disabled=not xac_nhan_main
                     ):
-                        tap_xoa = set(files_xoa)
-                        seed_bi_xoa = [
-                            x for x in bank_seed
-                            if str(x.get("nguon_file", "")).strip() in tap_xoa
+                        ids_xoa = {str(q.get("id", "")) for q in ds_se_xoa_main}
+                        backup_path = _sao_luu_ngan_hang_chinh_truoc_khi_don(
+                            bank_main_hien_tai,
+                            "truoc_xoa_cau_hat_giong"
+                        )
+                        bank_main_moi = [
+                            q for q in bank_main_hien_tai
+                            if str(q.get("id", "")) not in ids_xoa
                         ]
-                        bank_moi = [
-                            x for x in bank_seed
-                            if str(x.get("nguon_file", "")).strip() not in tap_xoa
-                        ]
-                        # Chỉ dọn media không còn được ngân hàng chính tham chiếu.
-                        _seed_don_media_khi_xoa_nguon(seed_bi_xoa)
-                        luu_ngan_hang_hat_giong(bank_moi)
+                        luu_ngan_hang(bank_main_moi)
                         st.success(
-                            f"Đã xóa {so_cau_se_xoa} câu hạt giống từ "
-                            f"{len(files_xoa)} file nguồn."
+                            f"Đã xóa {len(ids_xoa)} câu hạt giống khỏi Ngân hàng câu hỏi. "
+                            f"Đã sao lưu trước khi xóa tại: {os.path.basename(backup_path)}"
                         )
                         st.rerun()
 
-    if bank_seed:
-        with st.expander("🧭 Độ phủ & danh sách câu hạt giống", expanded=False):
-            st.markdown("### 🧭 Độ phủ hạt giống theo năng lực – chỉ báo")
-            rows_seed_cov = thong_ke_hat_giong_nang_luc_chi_bao(bank_seed)
-    
-            if rows_seed_cov:
-                st.dataframe(
-                    pd.DataFrame(rows_seed_cov),
-                    use_container_width=True,
-                    hide_index=True,
-                    height=300
-                )
-    
-            chua_xd = sum(
-                1 for x in bank_seed
-                if not str(x.get("thanh_phan_nang_luc", "")).strip()
-            )
-    
-            if chua_xd:
-                st.warning(
-                    f"Còn {chua_xd} câu chưa xác định được năng lực. "
-                    "App vẫn giữ lại; nên hoàn thiện metadata ở file nguồn rồi nhập lại khi cần."
-                )
-    
-            st.info(
-                "Nguyên tắc: **hạt giống + tạo mới song song**. "
-                "App dùng hạt giống làm mẫu định hướng, đồng thời tạo thêm câu mới "
-                "và ưu tiên bù các năng lực/chỉ báo còn thiếu."
-            )
-            nguon_seed = sorted({str(x.get("nguon_file","")) for x in bank_seed if x.get("nguon_file")})
-            nguon_chon = st.selectbox("Lọc theo file nguồn", ["Tất cả"] + nguon_seed, key="seed_source_filter")
-            ds_seed_hien = [x for x in bank_seed if nguon_chon == "Tất cả" or x.get("nguon_file") == nguon_chon]
-            st.dataframe(pd.DataFrame([{"Câu gốc":x.get("so_cau_goc",""),"Dạng gợi ý":x.get("dang_cau_goi_y",""),"Nguồn":x.get("nguon_file",""),"Trạng thái nguồn":x.get("kiem_tra_dap_an","Nguồn đã chuẩn hóa"),"Trạng thái":x.get("trang_thai","")} for x in ds_seed_hien[:300]]), use_container_width=True, hide_index=True, height=360)
-            with st.expander("👁️ Xem nội dung một câu hạt giống", expanded=False):
-                labels=[f"{i+1}. Câu {x.get('so_cau_goc','')} • {x.get('dang_cau_goi_y','')}" for i,x in enumerate(ds_seed_hien)]
-                if labels:
-                    label = st.selectbox(
-                        "Chọn câu",
-                        labels,
-                        key="seed_preview_select"
-                    )
-                    idx = labels.index(label)
-                    seed_xem = ds_seed_hien[idx]
-                    st.write(
-                        seed_xem.get("noi_dung_hien_thi", "")
-                        or seed_xem.get("noi_dung_goc", "")
-                    )
-                    _seed_hien_thi_tai_nguyen(seed_xem)
     
     
     
