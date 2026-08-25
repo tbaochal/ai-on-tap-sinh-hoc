@@ -205,8 +205,43 @@ from fast_store import (
     get_questions_v2_by_scope as _fast_get_questions_v2_by_scope,
     get_question_index_v2_by_scope as _fast_get_question_index_v2_by_scope,
     get_questions_v2_by_ids as _fast_get_questions_v2_by_ids,
+    questions_v2_count as _fast_questions_v2_count,
     clear_fast_cache as _clear_fast_store_cache,
 )
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _teacher_bank_count_cached():
+    """Đếm nhanh số câu Ngân hàng chung để mở khu GV không bị treo."""
+    try:
+        count_v2 = _fast_questions_v2_count()
+        if count_v2 is not None:
+            return max(0, int(count_v2))
+    except Exception:
+        pass
+
+    # Fallback: chỉ đọc danh sách thô, không chạy bước gán chỉ báo cho toàn kho.
+    try:
+        raw = _doc_shared_list_cached(BANK_PATH)
+        if isinstance(raw, list):
+            return sum(
+                1 for q in raw
+                if not _la_ban_sao_cau_tot_nghiep_trong_ngan_hang_chung(q)
+            )
+    except Exception:
+        pass
+
+    try:
+        local = _doc_json_local(BANK_PATH, [])
+        if isinstance(local, list):
+            return sum(
+                1 for q in local
+                if not _la_ban_sao_cau_tot_nghiep_trong_ngan_hang_chung(q)
+            )
+    except Exception:
+        pass
+
+    return 0
+
 
 # Ảnh/sơ đồ của đề thật: hiển thị vừa đủ để đọc, không kéo tràn toàn bộ màn hình.
 GRAD_IMAGE_DISPLAY_WIDTH = 620
@@ -393,6 +428,10 @@ def luu_ngan_hang(data):
     ok = _luu_document_shared(BANK_PATH, data)
     try:
         _doc_ngan_hang_processed_cached.clear()
+    except Exception:
+        pass
+    try:
+        _teacher_bank_count_cached.clear()
     except Exception:
         pass
     _clear_shared_read_caches()
@@ -14115,12 +14154,31 @@ def quan_ly_hoc_sinh():
 # PHÂN TÍCH LỚP HỌC - KHÔNG DÙNG AI/API
 # ==========================================================
 def lay_danh_sach_lop_tu_hoc_sinh():
+    """Lấy danh sách lớp bền vững từ hồ sơ HS; fallback từ lịch sử bài làm."""
     ds_hs = doc_danh_sach_hoc_sinh()
-    return sorted({
+    cac_lop = {
         str(x.get("lop", "")).strip()
-        for x in ds_hs
+        for x in (ds_hs or [])
         if str(x.get("lop", "")).strip()
-    })
+    }
+
+    # Nếu link GV chưa đọc được bảng students nhưng student_attempts vẫn có dữ liệu,
+    # không để màn hình quản lí lớp bị trắng.
+    if not cac_lop:
+        try:
+            for lan in doc_lich_su_hoc_sinh() or []:
+                pham_vi = lan.get("pham_vi", {}) or {}
+                lop = str(
+                    lan.get("lop")
+                    or (pham_vi.get("lop") if isinstance(pham_vi, dict) else "")
+                    or ""
+                ).strip()
+                if lop:
+                    cac_lop.add(lop)
+        except Exception:
+            pass
+
+    return sorted(cac_lop)
 
 
 def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None, bai_key_filter=None):
@@ -14132,17 +14190,48 @@ def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None
         lich_su = doc_lich_su_hoc_sinh()
         ds_hs = doc_danh_sach_hoc_sinh()
 
+    # Nếu bảng students tạm rỗng nhưng lịch sử lớp vẫn có,
+    # dựng hồ sơ tối thiểu từ student_attempts để dữ liệu lớp vẫn mở được.
+    if not ds_hs and lich_su:
+        tam = {}
+        for lan in lich_su:
+            ma = str(
+                lan.get("hoc_sinh_id")
+                or lan.get("ma_hoc_sinh")
+                or ""
+            ).strip().upper()
+            if not ma:
+                continue
+            pham_vi = lan.get("pham_vi", {}) or {}
+            lop_lan = str(
+                lan.get("lop")
+                or (pham_vi.get("lop") if isinstance(pham_vi, dict) else "")
+                or lop_chon
+                or ""
+            ).strip()
+            tam.setdefault(ma, {
+                "ma_hoc_sinh": ma,
+                "ho_ten": str(lan.get("ho_ten", "") or "").strip(),
+                "lop": lop_lan,
+                "khoi": str(lan.get("khoi", "") or "").strip(),
+            })
+        ds_hs = list(tam.values())
+
     map_hs = {
         str(x.get("ma_hoc_sinh", "")).strip().upper(): x
         for x in ds_hs
+        if str(x.get("ma_hoc_sinh", "")).strip()
     }
 
     if lop_chon and lop_chon != "Tất cả":
         ma_lop = set(map_hs)
-        lich_su = [
-            x for x in lich_su
-            if str(x.get("hoc_sinh_id", "")).strip().upper() in ma_lop
-        ]
+        # Chỉ lọc theo danh sách students khi danh sách đó thực sự có dữ liệu.
+        # Nếu students rỗng, giữ các lượt đã truy vấn đúng class_name.
+        if ma_lop:
+            lich_su = [
+                x for x in lich_su
+                if str(x.get("hoc_sinh_id", "")).strip().upper() in ma_lop
+            ]
 
     if che_do_filter:
         if isinstance(che_do_filter, (list, tuple, set)):
@@ -14260,527 +14349,236 @@ def bang_thong_ke_bucket(bucket, ten_cot):
     return rows
 
 
-@_safe_fragment
 def phan_tich_lop_hoc():
-    st.header(
-        "📊 PHÂN TÍCH LỚP HỌC"
-    )
-
+    st.header("📈 TỔNG HỢP LỚP & ĐỀ XUẤT DẠY HỌC")
     st.caption(
-        "Dữ liệu được tổng hợp trực tiếp từ bài làm của học sinh. "
-        "Phần này **không gọi AI và không tốn API**."
+        "Tổng hợp trực tiếp từ bài làm của học sinh để GV nhận ra "
+        "YCCĐ, mức độ và thành phần năng lực cả lớp còn yếu. "
+        "Không chọn nguồn dữ liệu và không gọi AI."
     )
 
     ds_lop = lay_danh_sach_lop_tu_hoc_sinh()
-
     if not ds_lop:
         st.info(
-            "Chưa có lớp/học sinh trong hệ thống."
+            "Chưa tìm thấy lớp. Nếu học sinh đã làm bài, hệ thống sẽ tự lấy lớp "
+            "từ lịch sử bài làm ở lần tải tiếp theo."
         )
         return
 
     lop = st.selectbox(
-        "Chọn lớp",
-        ["Tất cả"] + ds_lop,
+        "Chọn lớp cần phân tích",
+        ds_lop,
         key="gv_class_analysis_class"
     )
 
-    pham_vi_phan_tich = st.selectbox(
-        "Nguồn dữ liệu phân tích",
-        [
-            "Tất cả hoạt động",
-            "Chỉ các bài có điểm chính thức",
-            CHE_DO_DE_GV,
-            CHE_DO_KIEM_TRA_MA_TRAN,
-            CHE_DO_TOT_NGHIEP
-        ],
-        key="gv_class_analysis_scope"
-    )
+    with st.spinner("Đang tổng hợp dữ liệu của lớp..."):
+        data = tong_hop_du_lieu_lop(lop)
 
-    if pham_vi_phan_tich == "Tất cả hoạt động":
-        che_do_loc = None
-    elif pham_vi_phan_tich == "Chỉ các bài có điểm chính thức":
-        che_do_loc = [
-            CHE_DO_DE_GV,
-            CHE_DO_KIEM_TRA_MA_TRAN,
-            CHE_DO_TOT_NGHIEP
-        ]
-    else:
-        che_do_loc = pham_vi_phan_tich
-
-    bai_key_phan_tich = None
-
-    # Khi GV đang xem dữ liệu chấm điểm chính thức, cho chọn chính xác từng đề/đợt.
-    if pham_vi_phan_tich != "Tất cả hoạt động":
-        ds_luot_pt = loc_luot_co_diem_chinh_thuc(
-            lop=lop,
-            che_do=(
-                None
-                if isinstance(che_do_loc, (list, tuple, set))
-                else che_do_loc
-            )
-        )
-        if isinstance(che_do_loc, (list, tuple, set)):
-            ds_luot_pt = [
-                x for x in ds_luot_pt
-                if str(x.get("che_do", "")).strip() in set(che_do_loc)
-            ]
-
-        key_label_pt = {}
-        for lan in ds_luot_pt:
-            k = khoa_bai_lam_chinh_thuc(lan)
-            if k and k not in key_label_pt:
-                key_label_pt[k] = nhan_bai_lam_chinh_thuc(lan)
-
-        if key_label_pt:
-            ds_key_pt = sorted(key_label_pt, key=lambda k: key_label_pt[k])
-            key_chon_pt = st.selectbox(
-                "Chọn riêng từng đề / đợt để phân tích",
-                ["Tất cả"] + ds_key_pt,
-                format_func=lambda k: "Tất cả" if k == "Tất cả" else key_label_pt.get(k, k),
-                key="gv_class_analysis_exact_exam"
-            )
-            if key_chon_pt != "Tất cả":
-                bai_key_phan_tich = key_chon_pt
-
-    data = tong_hop_du_lieu_lop(
-        lop,
-        che_do_filter=che_do_loc,
-        bai_key_filter=bai_key_phan_tich
-    )
-
-    hs_stats = list(
-        data.get(
-            "hoc_sinh",
-            {}
-        ).values()
-    )
-
+    hs_stats = list((data.get("hoc_sinh", {}) or {}).values())
     if not hs_stats:
         st.info(
-            "Lớp này chưa có dữ liệu làm bài."
+            "Lớp này chưa có lượt làm bài đủ dữ liệu để tổng hợp."
         )
         return
 
-    tong_don_vi = sum(
-        x.get("tong_don_vi", 0)
-        for x in hs_stats
-    )
-
-    tong_dung = sum(
-        x.get("dung_don_vi", 0)
-        for x in hs_stats
-    )
+    tong_don_vi = sum(int(x.get("tong_don_vi", 0) or 0) for x in hs_stats)
+    tong_dung = sum(int(x.get("dung_don_vi", 0) or 0) for x in hs_stats)
+    diem_all = [
+        float(d)
+        for hs in hs_stats
+        for d in (hs.get("diem", []) or [])
+        if d is not None
+    ]
 
     c1, c2, c3, c4 = st.columns(4)
+    c1.metric("HS có dữ liệu", len(hs_stats))
+    c2.metric("Tổng lượt làm bài", int(data.get("so_luot", 0) or 0))
+    c3.metric(
+        "Tỉ lệ đúng toàn lớp",
+        f"{(tong_dung / tong_don_vi * 100):.1f}%" if tong_don_vi else "0%"
+    )
+    c4.metric(
+        "Điểm TB các lượt",
+        f"{sum(diem_all) / len(diem_all):.1f}" if diem_all else "—"
+    )
 
-    with c1:
-        st.metric(
-            "Học sinh có dữ liệu",
-            len(hs_stats)
+    # Tất cả bảng đều được sắp từ yếu -> mạnh.
+    yccd_rows = bang_thong_ke_bucket(data.get("yccd", {}) or {}, "YCCĐ")
+    nl_rows = bang_thong_ke_bucket(data.get("nang_luc", {}) or {}, "Năng lực")
+    md_rows = bang_thong_ke_bucket(data.get("muc_do", {}) or {}, "Mức độ")
+
+    # Chỉ kết luận "yếu" khi có đủ số lượt đánh giá tối thiểu.
+    yccd_yeu = [
+        r for r in yccd_rows
+        if int(r.get("Số lượt đánh giá", 0) or 0) >= 3
+        and float(r.get("Tỉ lệ đúng", 0) or 0) < 70
+    ]
+    nl_yeu = [
+        r for r in nl_rows
+        if int(r.get("Số lượt đánh giá", 0) or 0) >= 5
+        and float(r.get("Tỉ lệ đúng", 0) or 0) < 70
+    ]
+    md_yeu = [
+        r for r in md_rows
+        if int(r.get("Số lượt đánh giá", 0) or 0) >= 5
+        and float(r.get("Tỉ lệ đúng", 0) or 0) < 70
+    ]
+
+    st.divider()
+    st.subheader("🎯 YCCĐ cả lớp cần ưu tiên")
+    if yccd_yeu:
+        st.warning(
+            f"Có **{len(yccd_yeu)} YCCĐ** có tỉ lệ đúng dưới 70% "
+            "và đã có đủ dữ liệu để xem là điểm cần củng cố."
         )
-
-    with c2:
-        st.metric(
-            "Tổng lượt làm bài",
-            data.get(
-                "so_luot",
-                0
-            )
+        st.dataframe(
+            pd.DataFrame(yccd_yeu),
+            use_container_width=True,
+            hide_index=True,
+            height=min(520, 80 + 35 * len(yccd_yeu))
         )
-
-    with c3:
-        st.metric(
-            "Tỉ lệ đúng toàn lớp",
-            (
-                f"{tong_dung / tong_don_vi * 100:.1f}%"
-                if tong_don_vi
-                else "0%"
-            )
-        )
-
-    with c4:
-        diem_all = [
-            d
-            for hs in hs_stats
-            for d in hs.get(
-                "diem",
-                []
-            )
-        ]
-
-        st.metric(
-            "Điểm TB các lượt",
-            (
-                f"{sum(diem_all) / len(diem_all):.1f}"
-                if diem_all
-                else "—"
-            )
-        )
-
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "🎯 Nội dung lớp còn yếu",
-        "👥 Học sinh cần hỗ trợ",
-        "📈 Mức độ & năng lực",
-        "📚 Bài / chương"
-    ])
-
-    # ------------------------------------------------------
-    # TAB 1
-    # ------------------------------------------------------
-    with tab1:
-        st.subheader(
-            "🎯 YCCĐ lớp đang gặp khó khăn"
-        )
-
-        rows = bang_thong_ke_bucket(
-            data.get("yccd", {}),
-            "YCCĐ"
-        )
-
-        if rows:
+    elif yccd_rows:
+        st.success("Chưa có YCCĐ nào yếu rõ theo dữ liệu hiện có.")
+        with st.expander("Xem toàn bộ YCCĐ của lớp"):
             st.dataframe(
-                pd.DataFrame(
-                    rows[:20]
-                ),
+                pd.DataFrame(yccd_rows),
                 use_container_width=True,
                 hide_index=True
             )
+    else:
+        st.info("Chưa có dữ liệu YCCĐ để tổng hợp.")
 
-            can_day_lai = [
-                x for x in rows
-                if x["Số lượt đánh giá"] >= 3
-                and x["Tỉ lệ đúng"] < 60
-            ]
+    st.subheader("🧬 Thành phần năng lực cả lớp còn yếu")
+    if nl_yeu:
+        st.dataframe(
+            pd.DataFrame(nl_yeu),
+            use_container_width=True,
+            hide_index=True
+        )
+    elif nl_rows:
+        st.success("Chưa có thành phần năng lực nào yếu rõ.")
+        st.dataframe(
+            pd.DataFrame(nl_rows),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Chưa có dữ liệu năng lực để tổng hợp.")
 
-            if can_day_lai:
-                st.warning(
-                    f"⚠️ Có **{len(can_day_lai)} YCCĐ** có tỉ lệ đúng dưới 60%. "
-                    "GV nên cân nhắc ôn lại, đổi cách giải thích hoặc tăng bài luyện."
-                )
-
-                for i, x in enumerate(
-                    can_day_lai[:5],
-                    start=1
-                ):
-                    st.write(
-                        f"**{i}. {x['YCCĐ']}**"
-                    )
-                    st.caption(
-                        f"Tỉ lệ đúng: {x['Tỉ lệ đúng']}% • "
-                        f"{x['Số HS từng sai']} học sinh từng sai."
-                    )
-
-    # ------------------------------------------------------
-    # TAB 2
-    # ------------------------------------------------------
-    with tab2:
-        st.caption(
-            "App ưu tiên HS cần GV quan tâm dựa trên kết quả chung, "
-            "số YCCĐ còn yếu và xu hướng các lượt gần đây."
+    st.subheader("📊 Mức độ nhận thức cần củng cố")
+    if md_rows:
+        st.dataframe(
+            pd.DataFrame(md_rows),
+            use_container_width=True,
+            hide_index=True
         )
 
-        rows_hs = []
+    st.divider()
+    st.subheader("👩‍🏫 Đề xuất GV tổ chức dạy học")
 
-        for hs in hs_stats:
-            tong = hs.get("tong_don_vi", 0)
-            dung = hs.get("dung_don_vi", 0)
+    de_xuat = []
 
-            ti_le = (
-                dung / tong * 100
-                if tong
-                else 0
-            )
+    # Đề xuất theo YCCĐ yếu nhất.
+    for r in yccd_yeu[:8]:
+        yccd = str(r.get("YCCĐ", "") or "").strip()
+        tl = float(r.get("Tỉ lệ đúng", 0) or 0)
+        so_hs = int(r.get("Số HS từng sai", 0) or 0)
 
-            diem = hs.get("diem", [])
-            so_luot = int(hs.get("so_luot", 0) or 0)
-
-            # Chỉ phân tích đúng phạm vi dữ liệu GV đang chọn ở đầu trang.
-            ma_hs = hs.get("ma", "")
-            ls_hs_scope = [
-                lan
-                for lan in data.get("_lich_su", []) or []
-                if str(lan.get("hoc_sinh_id", "")).strip().upper()
-                == str(ma_hs).strip().upper()
-            ]
-
-            weak_scope = tong_hop_diem_yeu_tu_luot(
-                ls_hs_scope,
-                100
-            )
-
-            # Đếm YCCĐ yếu có đủ tối thiểu 2 lần đánh giá.
-            yccd_yeu = set()
-            nl_tong = {}
-
-            for s in weak_scope:
-                sl = int(s.get("Số lượt đánh giá", 0) or 0)
-                sd = int(s.get("Số đúng", 0) or 0)
-                tl = sd / sl if sl else 0
-
-                if sl >= 2 and tl < 0.60:
-                    yccd = str(s.get("YCCĐ", "")).strip()
-                    if yccd:
-                        yccd_yeu.add(yccd)
-
-                nl = str(s.get("Năng lực", "")).strip()
-                if nl:
-                    bucket = nl_tong.setdefault(
-                        nl,
-                        {"tong": 0, "dung": 0}
-                    )
-                    bucket["tong"] += sl
-                    bucket["dung"] += sd
-
-            nl_yeu = []
-            for nl, s_nl in nl_tong.items():
-                if s_nl["tong"] >= 3:
-                    tl_nl = s_nl["dung"] / s_nl["tong"]
-                    if tl_nl < 0.60:
-                        nl_yeu.append(nl)
-
-            # Xu hướng điểm: so TB nửa đầu và nửa sau khi có >= 4 lượt.
-            xu_huong = "Chưa đủ dữ liệu"
-            if len(diem) >= 4:
-                mid = len(diem) // 2
-                dau = diem[:mid]
-                sau = diem[mid:]
-                tb_dau = sum(dau) / len(dau)
-                tb_sau = sum(sau) / len(sau)
-                chenhlech = tb_sau - tb_dau
-
-                if chenhlech >= 0.5:
-                    xu_huong = "Đang tiến bộ"
-                elif chenhlech <= -0.5:
-                    xu_huong = "Có dấu hiệu giảm"
-                else:
-                    xu_huong = "Ổn định"
-            elif len(diem) >= 2:
-                chenhlech = diem[-1] - diem[0]
-                if chenhlech >= 0.5:
-                    xu_huong = "Đang tiến bộ"
-                elif chenhlech <= -0.5:
-                    xu_huong = "Có dấu hiệu giảm"
-                else:
-                    xu_huong = "Ổn định"
-
-            ly_do = []
-            muc_uu_tien = 0
-
-            if so_luot >= 1 and ti_le < 60:
-                ly_do.append("Kết quả chung thấp")
-                muc_uu_tien += 2
-
-            if len(yccd_yeu) >= 1:
-                ly_do.append(f"{len(yccd_yeu)} YCCĐ cần củng cố")
-                muc_uu_tien += min(len(yccd_yeu), 3)
-
-            if nl_yeu:
-                ly_do.append(
-                    "Yếu " + ", ".join(nl_yeu[:2])
-                )
-                muc_uu_tien += 2
-
-            if xu_huong == "Có dấu hiệu giảm":
-                ly_do.append("Kết quả gần đây giảm")
-                muc_uu_tien += 2
-
-            # Chỉ xếp vào nhóm cần hỗ trợ khi có ít nhất một dấu hiệu rõ.
-            can_ho_tro = bool(ly_do)
-
-            rows_hs.append({
-                "Mã HS": ma_hs,
-                "Họ và tên": hs.get("ho_ten", ""),
-                "Lớp": hs.get("lop", ""),
-                "Số lượt": so_luot,
-                "Tỉ lệ đúng": round(ti_le, 1),
-                "Điểm TB": round(
-                    sum(diem) / len(diem),
-                    1
-                ) if diem else 0,
-                "Xu hướng": xu_huong,
-                "Cần hỗ trợ về": " • ".join(ly_do) if ly_do else "Chưa có dấu hiệu đáng chú ý",
-                "_uu_tien": muc_uu_tien,
-                "_can_ho_tro": can_ho_tro
-            })
-
-        nhom_can_ho_tro = [
-            x for x in rows_hs
-            if x["_can_ho_tro"]
-        ]
-
-        nhom_can_ho_tro.sort(
-            key=lambda x: (
-                -x["_uu_tien"],
-                x["Tỉ lệ đúng"],
-                x["Điểm TB"]
-            )
-        )
-
-        if nhom_can_ho_tro:
-            st.warning(
-                f"👥 Có **{len(nhom_can_ho_tro)} học sinh** đang có dấu hiệu cần GV quan tâm."
-            )
-
-            bang_ho_tro = pd.DataFrame([
-                {
-                    "Mã HS": x["Mã HS"],
-                    "Họ và tên": x["Họ và tên"],
-                    "Lớp": x["Lớp"],
-                    "Số lượt": x["Số lượt"],
-                    "Tỉ lệ đúng": x["Tỉ lệ đúng"],
-                    "Điểm TB": x["Điểm TB"],
-                    "Xu hướng": x["Xu hướng"],
-                    "Cần hỗ trợ về": x["Cần hỗ trợ về"]
-                }
-                for x in nhom_can_ho_tro
-            ])
-
-            st.dataframe(
-                bang_ho_tro,
-                use_container_width=True,
-                hide_index=True
-            )
-
-            st.caption(
-                "Danh sách được xếp ưu tiên theo mức độ cần hỗ trợ; "
-                "không chỉ dựa vào ngưỡng điểm dưới 60%."
+        if tl < 50:
+            cach = (
+                "Ưu tiên dạy lại trọng tâm; dùng sơ đồ/bảng/tình huống ngắn để "
+                "làm rõ bản chất, sau đó kiểm tra nhanh từng bước trước khi luyện độc lập."
             )
         else:
-            st.success(
-                "Hiện chưa phát hiện học sinh có dấu hiệu cần hỗ trợ rõ rệt."
+            cach = (
+                "Củng cố bằng câu hỏi có hướng dẫn và bài luyện phân hóa; "
+                "kiểm tra lại sau 1–2 lượt để xem mức làm chủ có tăng hay không."
             )
 
-        with st.expander(
-            "Xem toàn bộ học sinh có dữ liệu",
-            expanded=False
-        ):
-            tat_ca = pd.DataFrame([
-                {
-                    "Mã HS": x["Mã HS"],
-                    "Họ và tên": x["Họ và tên"],
-                    "Lớp": x["Lớp"],
-                    "Số lượt": x["Số lượt"],
-                    "Tỉ lệ đúng": x["Tỉ lệ đúng"],
-                    "Điểm TB": x["Điểm TB"],
-                    "Xu hướng": x["Xu hướng"]
-                }
-                for x in sorted(
-                    rows_hs,
-                    key=lambda z: (
-                        z["Lớp"],
-                        z["Họ và tên"]
-                    )
-                )
-            ])
+        de_xuat.append({
+            "Ưu tiên": yccd,
+            "Tỉ lệ đúng": f"{tl:.1f}%",
+            "HS từng sai": so_hs,
+            "Gợi ý dạy học": cach
+        })
 
-            st.dataframe(
-                tat_ca,
-                use_container_width=True,
-                hide_index=True
+    # Đề xuất theo năng lực.
+    goi_y_nang_luc = {
+        "Nhận thức sinh học": (
+            "Tăng hoạt động so sánh, phân loại, giải thích quan hệ và sơ đồ hóa kiến thức; "
+            "hạn chế chỉ yêu cầu học sinh nhớ đáp án."
+        ),
+        "Tìm hiểu thế giới sống": (
+            "Tăng bài đọc bảng số liệu, thiết kế/đánh giá thí nghiệm, xác định biến và "
+            "rút kết luận từ bằng chứng."
+        ),
+        "Vận dụng kiến thức, kĩ năng đã học": (
+            "Tăng tình huống thực tiễn, bài toán nhiều bước và yêu cầu học sinh giải thích "
+            "lựa chọn hoặc đề xuất giải pháp."
+        ),
+    }
+
+    for r in nl_yeu:
+        nl = str(r.get("Năng lực", "") or "").strip()
+        de_xuat.append({
+            "Ưu tiên": f"Năng lực: {nl}",
+            "Tỉ lệ đúng": f"{float(r.get('Tỉ lệ đúng', 0) or 0):.1f}%",
+            "HS từng sai": int(r.get("Số HS từng sai", 0) or 0),
+            "Gợi ý dạy học": goi_y_nang_luc.get(
+                nl,
+                "Tăng hoạt động đúng thành phần năng lực này và kiểm tra lại bằng câu hỏi cùng chuẩn."
             )
+        })
 
-    # ------------------------------------------------------
-    # TAB 3
-    # ------------------------------------------------------
-    with tab3:
-        col_a, col_b = st.columns(2)
-
-        with col_a:
-            st.markdown(
-                "### Theo mức độ"
-            )
-
-            rows_muc = bang_thong_ke_bucket(
-                data.get("muc_do", {}),
-                "Mức độ"
-            )
-
-            if rows_muc:
-                st.dataframe(
-                    pd.DataFrame(
-                        rows_muc
-                    ),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-        with col_b:
-            st.markdown(
-                "### Theo thành phần năng lực"
-            )
-
-            rows_nl = bang_thong_ke_bucket(
-                data.get("nang_luc", {}),
-                "Thành phần năng lực"
-            )
-
-            if rows_nl:
-                st.dataframe(
-                    pd.DataFrame(
-                        rows_nl
-                    ),
-                    use_container_width=True,
-                    hide_index=True
-                )
-
-        st.markdown(
-            "### Theo dạng câu"
+    if de_xuat:
+        st.dataframe(
+            pd.DataFrame(de_xuat),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.success(
+            "Chưa có điểm yếu lớp rõ rệt. GV có thể tiếp tục duy trì và tăng dần độ khó."
         )
 
-        rows_dang = bang_thong_ke_bucket(
-            data.get("dang_cau", {}),
-            "Dạng câu"
+    st.caption(
+        "Nguyên tắc: đề xuất dựa trên dữ liệu bài làm của chính lớp; "
+        "YCCĐ/năng lực có ít lượt đánh giá sẽ chưa bị kết luận là yếu."
+    )
+
+    # Vẫn giữ nhóm HS cần quan tâm nhưng đặt sau bức tranh lớp.
+    st.divider()
+    st.subheader("👥 Học sinh cần GV quan tâm")
+    rows_hs = []
+    for hs in hs_stats:
+        tong = int(hs.get("tong_don_vi", 0) or 0)
+        dung = int(hs.get("dung_don_vi", 0) or 0)
+        ti_le = dung / tong * 100 if tong else 0
+        diem = [float(x) for x in (hs.get("diem", []) or [])]
+        rows_hs.append({
+            "Mã HS": hs.get("ma", ""),
+            "Họ và tên": hs.get("ho_ten", ""),
+            "Lớp": hs.get("lop", ""),
+            "Số lượt": int(hs.get("so_luot", 0) or 0),
+            "Tỉ lệ đúng": round(ti_le, 1),
+            "Điểm TB": round(sum(diem) / len(diem), 1) if diem else 0,
+        })
+
+    can_ho_tro = [
+        x for x in rows_hs
+        if int(x.get("Số lượt", 0) or 0) >= 1
+        and float(x.get("Tỉ lệ đúng", 0) or 0) < 60
+    ]
+    can_ho_tro.sort(key=lambda x: (x["Tỉ lệ đúng"], x["Điểm TB"]))
+
+    if can_ho_tro:
+        st.dataframe(
+            pd.DataFrame(can_ho_tro),
+            use_container_width=True,
+            hide_index=True
         )
-
-        if rows_dang:
-            st.dataframe(
-                pd.DataFrame(
-                    rows_dang
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
-
-    # ------------------------------------------------------
-    # TAB 4
-    # ------------------------------------------------------
-    with tab4:
-        st.markdown(
-            "### Theo bài"
-        )
-
-        rows_bai = bang_thong_ke_bucket(
-            data.get("bai", {}),
-            "Bài"
-        )
-
-        if rows_bai:
-            st.dataframe(
-                pd.DataFrame(
-                    rows_bai[:30]
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
-
-        st.markdown(
-            "### Theo chương"
-        )
-
-        rows_chuong = bang_thong_ke_bucket(
-            data.get("chuong", {}),
-            "Chương"
-        )
-
-        if rows_chuong:
-            st.dataframe(
-                pd.DataFrame(
-                    rows_chuong
-                ),
-                use_container_width=True,
-                hide_index=True
-            )
+    else:
+        st.success("Chưa có học sinh nào dưới ngưỡng 60% trong dữ liệu hiện có.")
 
 
 
@@ -15440,6 +15238,24 @@ def tong_hop_hoc_sinh_theo_lop(lop_chon):
         if sid:
             attempts_by_sid.setdefault(sid, []).append(x)
 
+    # GV vẫn xem được lớp nếu bảng students tạm chưa trả về nhưng attempts có dữ liệu.
+    if not ds_hs and attempts_by_sid:
+        ds_hs = []
+        for sid, ls in attempts_by_sid.items():
+            lan = ls[-1] if ls else {}
+            pham_vi = lan.get("pham_vi", {}) or {}
+            ds_hs.append({
+                "ma_hoc_sinh": sid,
+                "ho_ten": str(lan.get("ho_ten", "") or "").strip(),
+                "lop": str(
+                    lan.get("lop")
+                    or (pham_vi.get("lop") if isinstance(pham_vi, dict) else "")
+                    or lop_chon
+                    or ""
+                ).strip(),
+                "khoi": str(lan.get("khoi", "") or "").strip(),
+            })
+
     cac_lop = sorted({str(hs.get("lop", "")).strip() for hs in ds_hs if str(hs.get("lop", "")).strip()})
     xep_hang_map = {}
     # Không gọi lại DB: tính hạng trực tiếp từ attempts_by_sid đã có.
@@ -15943,7 +15759,6 @@ def tao_excel_tong_hop_chung_lop(lop_chon):
     return output.getvalue()
 
 
-@_safe_fragment
 def du_lieu_va_tien_bo_hoc_sinh():
     st.header(
         "🗂️ DỮ LIỆU & TIẾN BỘ HỌC SINH"
@@ -16569,63 +16384,57 @@ def du_lieu_va_tien_bo_hoc_sinh():
     # TAB 3
     # ------------------------------------------------------
     with tab3:
-        st.markdown(
-            "### ⬇️ Xuất báo cáo"
-        )
-
+        st.markdown("### ⬇️ Xuất báo cáo")
         st.caption(
-            "Có 2 loại file: báo cáo từng học sinh của lớp và báo cáo bức tranh chung của lớp."
+            "Chỉ tạo file khi GV thực sự cần tải để trang Dữ liệu & tiến bộ mở nhanh."
         )
 
-        file_hs = tao_excel_tong_hop_hoc_sinh_lop(
-            lop
-        )
+        export_key = f"_gv_progress_exports_{chuan_hoa_ten_lop(lop)}"
+        exports = st.session_state.get(export_key)
 
-        file_lop = tao_excel_tong_hop_chung_lop(
-            lop
-        )
-
-        f1, f2 = st.columns(
-            2
-        )
-
-        with f1:
-            st.download_button(
-                "⬇️ TẢI TỔNG HỢP TỪNG HỌC SINH",
-                data=file_hs,
-                file_name=(
-                    f"tong_hop_tung_hoc_sinh_{chuan_hoa_ten_lop(lop)}.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
+        if not isinstance(exports, dict):
+            if st.button(
+                "⚙️ CHUẨN BỊ 2 FILE EXCEL",
+                type="primary",
                 use_container_width=True,
-                key="gv_download_student_progress"
-            )
+                key=f"gv_prepare_progress_exports_{chuan_hoa_ten_lop(lop)}"
+            ):
+                with st.spinner("Đang tạo báo cáo Excel..."):
+                    exports = {
+                        "file_hs": tao_excel_tong_hop_hoc_sinh_lop(lop),
+                        "file_lop": tao_excel_tong_hop_chung_lop(lop),
+                    }
+                    st.session_state[export_key] = exports
+                st.rerun()
+        else:
+            f1, f2 = st.columns(2)
 
-            st.caption(
-                "Gồm: tổng hợp từng HS, lịch sử lượt làm, điểm yếu và tiến bộ theo cùng YCCĐ/mức độ/năng lực."
-            )
+            with f1:
+                st.download_button(
+                    "⬇️ TẢI TỔNG HỢP TỪNG HỌC SINH",
+                    data=exports.get("file_hs", b""),
+                    file_name=f"tong_hop_tung_hoc_sinh_{chuan_hoa_ten_lop(lop)}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="gv_download_student_progress"
+                )
 
-        with f2:
-            st.download_button(
-                "⬇️ TẢI TỔNG HỢP CHUNG CỦA LỚP",
-                data=file_lop,
-                file_name=(
-                    f"tong_hop_chung_lop_{chuan_hoa_ten_lop(lop)}.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                use_container_width=True,
-                key="gv_download_class_summary"
-            )
+            with f2:
+                st.download_button(
+                    "⬇️ TẢI TỔNG HỢP CHUNG CỦA LỚP",
+                    data=exports.get("file_lop", b""),
+                    file_name=f"tong_hop_chung_lop_{chuan_hoa_ten_lop(lop)}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    key="gv_download_class_summary"
+                )
 
-            st.caption(
-                "Gồm: tổng quan lớp, YCCĐ, mức độ, năng lực, dạng câu, bài và chương."
-            )
+            if st.button(
+                "🔄 Tạo lại file theo dữ liệu mới nhất",
+                key=f"gv_refresh_progress_exports_{chuan_hoa_ten_lop(lop)}"
+            ):
+                st.session_state.pop(export_key, None)
+                st.rerun()
 
 
 
@@ -23882,7 +23691,7 @@ def giao_vien():
         "👥 Quản lý học sinh",
         "🧾 Điểm ôn / kiểm tra",
         "🗂️ Dữ liệu & tiến bộ HS",
-        "📈 Phân tích lớp học"
+        "📈 Tổng hợp lớp & đề xuất dạy học"
     ]
 )
 
@@ -23900,12 +23709,9 @@ def giao_vien():
                 cau_hinh.get("Số câu", 1)
             )
 
-        # Hiện đúng số câu thực tế của Ngân hàng câu hỏi chung.
-        # Ngân hàng tốt nghiệp là kho riêng nên không được cộng vào đây.
-        try:
-            bank_count = len(doc_ngan_hang() or [])
-        except Exception:
-            bank_count = 0
+        # Chỉ đếm nhẹ để vào khu GV nhanh; không tải/chuẩn hóa toàn bộ ngân hàng.
+        # Ngân hàng tốt nghiệp là kho riêng, không cộng vào đây.
+        bank_count = _teacher_bank_count_cached()
 
         st.write(
             f"✅ YCCĐ đã chọn: "
@@ -23997,7 +23803,7 @@ def giao_vien():
 
         du_lieu_va_tien_bo_hoc_sinh()
 
-    elif menu == "📈 Phân tích lớp học":
+    elif menu == "📈 Tổng hợp lớp & đề xuất dạy học":
 
         phan_tich_lop_hoc()
 
