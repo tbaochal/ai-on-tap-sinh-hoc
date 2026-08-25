@@ -205,35 +205,42 @@ from fast_store import (
     get_questions_v2_by_scope as _fast_get_questions_v2_by_scope,
     get_question_index_v2_by_scope as _fast_get_question_index_v2_by_scope,
     get_questions_v2_by_ids as _fast_get_questions_v2_by_ids,
+    questions_v2_count as _fast_questions_v2_count,
     clear_fast_cache as _clear_fast_store_cache,
 )
 
 
-@st.cache_data(ttl=120, show_spinner=False)
+@st.cache_data(ttl=30, show_spinner=False)
 def _teacher_bank_count_cached():
-    """Đếm số câu NH cho sidebar GV, có fallback khi manifest/count trả 0.
+    """Trả đúng tổng số câu đang có trong ngân hàng dùng cho app.
 
-    Ưu tiên đường đếm nhẹ. Nếu backend cũ chưa có manifest hợp lệ, dùng bảng
-    questions_v2; cuối cùng mới fallback document JSON đã cache.
+    Nguồn chính là bảng questions_v2 — cùng nguồn mà đường luyện nhanh của HS dùng.
+    Hàm questions_v2_count() đã có fallback phân trang nên không phụ thuộc vào
+    việc Supabase có trả thuộc tính count hay không.
     """
     try:
-        count = int(_document_count_shared(BANK_PATH, 0) or 0)
-        if count > 0:
-            return count
+        count_v2 = _fast_questions_v2_count()
+        if count_v2 is not None:
+            return max(0, int(count_v2))
+    except Exception:
+        pass
+
+    # Fallback khi backend V2 tạm thời không truy cập được.
+    try:
+        bank = doc_ngan_hang()
+        if isinstance(bank, list):
+            return len(bank)
     except Exception:
         pass
 
     try:
-        data_v2 = _fast_get_all_questions_v2(expected_count=None)
-        if isinstance(data_v2, list) and data_v2:
-            return len(data_v2)
+        bank_local = _doc_json_local(BANK_PATH, [])
+        if isinstance(bank_local, list):
+            return len(bank_local)
     except Exception:
         pass
 
-    try:
-        return len(_doc_shared_list_cached(BANK_PATH) or [])
-    except Exception:
-        return 0
+    return 0
 
 
 # Ảnh/sơ đồ của đề thật: hiển thị vừa đủ để đọc, không kéo tràn toàn bộ màn hình.
@@ -16132,7 +16139,8 @@ def du_lieu_va_tien_bo_hoc_sinh():
             )
 
         profile = tao_ho_so_tu_lich_su(
-            ma
+            ma,
+            lich_su=lich_su_hs
         )
 
         # ==================================================
@@ -23870,24 +23878,9 @@ def giao_vien():
                 cau_hinh.get("Số câu", 1)
             )
 
-        # Đếm theo chính kho mà trang "Ngân hàng câu hỏi" đang sử dụng để
-        # số hiển thị ở sidebar luôn khớp với số câu GV thực sự nhìn thấy.
-        # Nếu Supabase tạm trả rỗng, fallback file local đi cùng bản deploy.
-        try:
-            bank_count = len(doc_ngan_hang() or [])
-        except Exception:
-            bank_count = 0
-
-        if bank_count <= 0:
-            try:
-                bank_local = _doc_json_local(BANK_PATH, [])
-                if isinstance(bank_local, list):
-                    bank_count = len(bank_local)
-            except Exception:
-                pass
-
-        if bank_count <= 0:
-            bank_count = _teacher_bank_count_cached()
+        # Hiện đúng tổng số câu đang có trong questions_v2.
+        # Không cộng, không lấy max giữa nhiều kho để tránh số dư/số ảo.
+        bank_count = _teacher_bank_count_cached()
 
         st.write(
             f"✅ YCCĐ đã chọn: "
@@ -24009,12 +24002,24 @@ def luu_lich_su_hoc_sinh(ds):
 
 def them_luot_lam_hoc_sinh(ban_ghi):
     """Ghi đúng 1 lượt làm; không tải/ghi lại lịch sử toàn trường."""
-    ok = _fast_append_attempt(
+    result = _fast_append_attempt(
         ban_ghi,
         local_history_path=HS_HISTORY_PATH
     )
-    if ok:
-        # Xóa các bảng tổng hợp ngắn hạn để GV/HS thấy lượt mới ngay.
+
+    if isinstance(result, dict):
+        luu_ok = bool(
+            result.get(
+                "ok",
+                result.get("success", False)
+            )
+        )
+    else:
+        # Tương thích fast_store cũ nếu append_attempt trả True/False.
+        luu_ok = bool(result)
+
+    if luu_ok:
+        # Xóa các bảng tổng hợp ngắn hạn để GV thấy lượt mới ngay.
         try:
             tong_hop_hoc_sinh_theo_lop.clear()
         except Exception:
@@ -24023,7 +24028,8 @@ def them_luot_lam_hoc_sinh(ban_ghi):
             tinh_bang_xep_hang_lop.clear()
         except Exception:
             pass
-    return ok
+
+    return result
 
 
 def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
@@ -25584,6 +25590,15 @@ def hoc_sinh():
                 del st.session_state[key]
 
 
+    # Hai helper này phải tồn tại ở mọi lần rerun của hoc_sinh().
+    # Sau khi HS bấm NỘP BÀI, nhánh hiển thị đề bị bỏ qua nhưng nhánh chấm vẫn dùng chúng.
+    def _hs_da_chon_gia_tri(value):
+        return value is not None and bool(str(value).strip())
+
+    def _hs_text_tra_loi(value):
+        return "" if value is None else str(value).strip()
+
+
     # ======================================================
     # SESSION
     # ======================================================
@@ -26996,56 +27011,6 @@ def hoc_sinh():
                 height=75
             )
 
-        # Chỉ đếm SỐ CÂU CÒN LẠI và chỉ xem là hoàn thành khi trả lời ĐỦ.
-        # Streamlit lưu radio chưa chọn là None. Tuyệt đối không dùng str(None),
-        # vì str(None) == "None" và sẽ bị hiểu nhầm là học sinh đã trả lời.
-        def _hs_da_chon_gia_tri(value):
-            return value is not None and bool(str(value).strip())
-
-        def _hs_text_tra_loi(value):
-            return "" if value is None else str(value).strip()
-
-        # Đặc biệt câu Đúng/Sai phải đủ cả 4 ý a–d; trả lời 1–3 ý vẫn tính là còn lại.
-        con_lai_chua_day_du = 0
-
-        for idx_q, q_check in enumerate(de_thi, start=1):
-            dang_check = q_check.get("dang_cau", "")
-
-            if dang_check == "Đúng / Sai":
-                da_day_du = all(
-                    _hs_da_chon_gia_tri(
-                        st.session_state.get(
-                            f"hs_answer_{idx_q}_{j}",
-                            None
-                        )
-                    )
-                    for j in range(1, 5)
-                )
-            elif dang_check == "Trả lời ngắn":
-                da_day_du = _hs_da_chon_gia_tri(
-                    st.session_state.get(
-                        f"hs_short_answer_{idx_q}",
-                        ""
-                    )
-                )
-            else:
-                da_day_du = _hs_da_chon_gia_tri(
-                    st.session_state.get(
-                        f"hs_answer_{idx_q}",
-                        None
-                    )
-                )
-
-            if not da_day_du:
-                con_lai_chua_day_du += 1
-
-        if con_lai_chua_day_du:
-            st.warning(
-                f"Em còn **{con_lai_chua_day_du} câu** chưa trả lời đầy đủ."
-            )
-        else:
-            st.success("✅ Em đã trả lời đầy đủ tất cả các câu.")
-
         for i, q in enumerate(
             de_thi,
             start=1
@@ -27144,14 +27109,60 @@ def hoc_sinh():
 
             st.divider()
 
-        # Số câu còn lại đã được hiển thị chính xác ở đầu bài; không lặp lại ở đây.
+        # ==================================================
+        # CUỐI BÀI: chỉ ở đây mới đếm và hiện SỐ CÂU CÒN LẠI.
+        # Câu thường: có đáp án là hoàn thành.
+        # Đúng/Sai: phải đủ cả 4 ý a–d mới hoàn thành 1 câu.
+        # Trả lời ngắn: phải có nội dung thực sự, không tính None/rỗng.
+        # ==================================================
+        con_lai_chua_day_du = 0
+
+        for idx_q, q_check in enumerate(de_thi, start=1):
+            dang_check = q_check.get("dang_cau", "")
+
+            if dang_check == "Đúng / Sai":
+                da_day_du = all(
+                    _hs_da_chon_gia_tri(
+                        st.session_state.get(
+                            f"hs_answer_{idx_q}_{j}",
+                            None
+                        )
+                    )
+                    for j in range(1, 5)
+                )
+            elif dang_check == "Trả lời ngắn":
+                da_day_du = _hs_da_chon_gia_tri(
+                    st.session_state.get(
+                        f"hs_short_answer_{idx_q}",
+                        None
+                    )
+                )
+            else:
+                da_day_du = _hs_da_chon_gia_tri(
+                    st.session_state.get(
+                        f"hs_answer_{idx_q}",
+                        None
+                    )
+                )
+
+            if not da_day_du:
+                con_lai_chua_day_du += 1
+
+        st.divider()
+
+        if con_lai_chua_day_du:
+            st.warning(
+                f"Em còn **{con_lai_chua_day_du} câu** chưa trả lời đầy đủ."
+            )
+        else:
+            st.success("✅ Em đã trả lời đầy đủ tất cả các câu.")
 
         if st.button(
             "✅ NỘP BÀI",
             type="primary",
             use_container_width=True
         ):
-            nop_dt = datetime.now()
+            nop_dt = bay_gio_viet_nam()
             st.session_state.hs_nop_bai_epoch = time.time()
             st.session_state.hs_nop_bai_iso = nop_dt.isoformat()
             st.session_state.hs_nop_bai_hien_thi = nop_dt.strftime(
@@ -27443,7 +27454,7 @@ def hoc_sinh():
 
         # Thời gian làm bài được ghi cùng kết quả để GV theo dõi/xuất điểm.
         if not st.session_state.get("hs_nop_bai_epoch"):
-            nop_dt_fallback = datetime.now()
+            nop_dt_fallback = bay_gio_viet_nam()
             st.session_state.hs_nop_bai_epoch = time.time()
             st.session_state.hs_nop_bai_iso = nop_dt_fallback.isoformat()
             st.session_state.hs_nop_bai_hien_thi = nop_dt_fallback.strftime(
@@ -27457,6 +27468,8 @@ def hoc_sinh():
             if bat_epoch and nop_epoch
             else 0.0
         )
+
+        thoi_diem_ghi = bay_gio_viet_nam()
 
         ban_ghi = {
             "id": str(
@@ -27475,10 +27488,10 @@ def hoc_sinh():
             "thoi_gian_quy_dinh_phut": int(
                 st.session_state.get("hs_thoi_gian_quy_dinh_phut", 0) or 0
             ),
-            "thoi_gian": datetime.now().strftime(
+            "thoi_gian": thoi_diem_ghi.strftime(
                 "%d/%m/%Y %H:%M"
             ),
-            "thoi_gian_iso": datetime.now().isoformat(),
+            "thoi_gian_iso": thoi_diem_ghi.isoformat(),
             "che_do": che_do_hien_tai,
             "pham_vi": st.session_state.get(
                 "hs_pham_vi_hien_tai",
@@ -27534,13 +27547,27 @@ def hoc_sinh():
                 ban_ghi = existing_kiem_tra
             else:
                 kq_luu_fast = them_luot_lam_hoc_sinh(ban_ghi)
-                if not bool((kq_luu_fast or {}).get("ok")):
+
+                if isinstance(kq_luu_fast, dict):
+                    luu_ok = bool(
+                        kq_luu_fast.get(
+                            "ok",
+                            kq_luu_fast.get("success", False)
+                        )
+                    )
+                    luu_error = str(kq_luu_fast.get("error", "") or "")
+                else:
+                    # Tương thích fast_store cũ nếu append_attempt trả True/False.
+                    luu_ok = bool(kq_luu_fast)
+                    luu_error = ""
+
+                if not luu_ok:
                     st.error(
                         "⚠️ Chưa ghi được kết quả lên kho dữ liệu chính. "
                         "Bài làm vẫn đang giữ trong phiên hiện tại; hãy thử lưu lại hoặc báo giáo viên."
                     )
-                    if (kq_luu_fast or {}).get("error"):
-                        st.caption(str((kq_luu_fast or {}).get("error")))
+                    if luu_error:
+                        st.caption(luu_error)
                 else:
                     st.session_state.hs_ban_ghi_hien_tai = ban_ghi
                     st.session_state.hs_da_luu_ket_qua = True
