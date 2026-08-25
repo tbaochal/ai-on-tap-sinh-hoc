@@ -49,26 +49,6 @@ def _perf_debug_enabled():
         return False
 
 
-def _gv_lazy_gate(state_key, button_label, caption=None):
-    """Chỉ mở dữ liệu của đúng chức năng GV khi GV chủ động yêu cầu."""
-    if st.session_state.get(state_key, False):
-        return True
-
-    if st.button(
-        button_label,
-        type="primary",
-        use_container_width=True,
-        key=f"{state_key}_button"
-    ):
-        st.session_state[state_key] = True
-        st.rerun()
-
-    st.caption(
-        caption
-        or "Dữ liệu chưa được gọi. Chỉ khi GV bấm nút trên, app mới tải dữ liệu của mục này."
-    )
-    return False
-
 
 # ==========================================================
 # CẤU HÌNH
@@ -7598,12 +7578,6 @@ def tao_cau_hoi_ai():
         "Chế độ thủ công chỉ dùng khi GV muốn can thiệp vào một YCCĐ cụ thể."
     )
 
-    if not _gv_lazy_gate(
-        "_gv_load_build_bank",
-        "🧱 MỞ DỮ LIỆU XÂY DỰNG NGÂN HÀNG"
-    ):
-        return
-
     tab_auto, tab_manual = st.tabs([
         "⚡ Xây dựng tự động",
         "✍️ Tạo theo YCCĐ (nâng cao)"
@@ -10663,11 +10637,6 @@ def ngan_hang_cau_hoi():
 
     st.header("🏦 NGÂN HÀNG CÂU HỎI")
 
-    if not _gv_lazy_gate(
-        "_gv_load_question_bank",
-        "🏦 MỞ DỮ LIỆU NGÂN HÀNG CÂU HỎI"
-    ):
-        return
     st.caption(
         "Chỉ hiển thị các câu đã được GV duyệt. "
         "Độ phủ và xây dựng tự động được quản lý ở mục "
@@ -12149,22 +12118,62 @@ def tao_de_giao_vien():
         "📝 TẠO ĐỀ TỪ NGÂN HÀNG"
     )
 
-    if not _gv_lazy_gate(
-        "_gv_load_exam_builder",
-        "📝 MỞ DỮ LIỆU TẠO ĐỀ"
-    ):
+    st.caption(
+        "Chỉ rút câu đã duyệt trong ngân hàng. "
+        "Nếu một ô ma trận thiếu câu, hệ thống báo thiếu thay vì lấy sai mục tiêu."
+    )
+
+    ds_khoi_nhe = [
+        str(k).strip()
+        for k in (KHO_YCCD or {}).keys()
+        if str(k).strip()
+    ]
+    ds_khoi_nhe = sorted(
+        ds_khoi_nhe,
+        key=lambda x: int(re.search(r"(10|11|12)", x).group(1))
+        if re.search(r"(10|11|12)", x) else 999
+    )
+
+    khoi_da_chon = st.selectbox(
+        "Khối",
+        ds_khoi_nhe,
+        index=None,
+        placeholder="Chọn khối",
+        key="exam_custom_grade"
+    )
+
+    if not khoi_da_chon:
         return
 
-    # Nguồn dùng chung khi GV ra đề: ngân hàng ôn tập + câu đề thật đã đủ điều kiện.
-    # Câu đề thật vẫn giữ nguyên hình/bảng và metadata Khối → Chương → Bài.
-    bank_main = [
-        q for q in doc_ngan_hang()
-        if q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
-    ]
+    # Chỉ sau khi GV chọn Khối mới gọi câu hỏi của đúng Khối đó.
+    try:
+        bank_main = _fast_get_questions_v2_by_scope(
+            khoi=khoi_da_chon,
+            expected_total=None,
+        )
+        if not isinstance(bank_main, list):
+            bank_main = []
+    except Exception:
+        bank_main = []
+
+    if not bank_main:
+        bank_main = [
+            q for q in doc_ngan_hang()
+            if q.get("khoi") == khoi_da_chon
+            and q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
+        ]
+    else:
+        bank_main = [
+            q for q in bank_main
+            if q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
+        ]
+
     bank_grad = [
         q for q in doc_ngan_hang_tot_nghiep_thuc_te()
-        if cau_tot_nghiep_du_dieu_kien_su_dung(q)
+        if q.get("khoi") == khoi_da_chon
+        and cau_tot_nghiep_du_dieu_kien_su_dung(q)
     ]
+
     bank = []
     seen_ids = set()
     for q in bank_main + bank_grad:
@@ -12176,14 +12185,9 @@ def tao_de_giao_vien():
 
     if not bank:
         st.info(
-            "Ngân hàng chưa có câu đã duyệt để tạo đề."
+            "Ngân hàng chưa có câu đã duyệt ở khối đã chọn để tạo đề."
         )
         return
-
-    st.caption(
-        "Chỉ rút câu đã duyệt trong ngân hàng. "
-        "Nếu một ô ma trận thiếu câu, hệ thống báo thiếu thay vì lấy sai mục tiêu."
-    )
 
     tab1, tab2, tab3 = st.tabs([
         "① Theo ma trận / đặc tả GV",
@@ -12207,18 +12211,14 @@ def tao_de_giao_vien():
 
         c0, c1, c2 = st.columns(3)
 
-        ds_khoi = sorted({
-            q.get("khoi", "")
-            for q in bank
-            if q.get("khoi")
-        })
-
         with c0:
-            khoi = st.selectbox(
+            st.text_input(
                 "Khối",
-                ds_khoi,
-                key="exam_custom_grade"
+                value=khoi_da_chon,
+                disabled=True,
+                key="exam_custom_grade_display"
             )
+            khoi = khoi_da_chon
 
         with c1:
             loai_kiem_tra = st.selectbox(
@@ -13716,12 +13716,6 @@ def quan_ly_hoc_sinh():
         "👥 QUẢN LÝ HỌC SINH"
     )
 
-    if not _gv_lazy_gate(
-        "_gv_load_students",
-        "👥 MỞ DỮ LIỆU QUẢN LÝ HỌC SINH"
-    ):
-        return
-
     st.caption(
         "GV tạo lớp và danh sách học sinh. "
         "App tự cấp mã duy nhất để dùng cho đăng nhập, lưu lịch sử và cá nhân hóa."
@@ -14414,23 +14408,12 @@ def phan_tich_lop_hoc():
     lop = st.selectbox(
         "Chọn lớp cần phân tích",
         ds_lop,
+        index=None,
+        placeholder="Chọn lớp cần phân tích",
         key="gv_class_analysis_class"
     )
 
-    analysis_key = f"class_analysis::{lop}"
-    if st.session_state.get("_gv_class_analysis_loaded_key") != analysis_key:
-        if st.button(
-            "📈 XEM TỔNG HỢP LỚP NÀY",
-            type="primary",
-            use_container_width=True,
-            key="gv_class_analysis_load_selected"
-        ):
-            st.session_state["_gv_class_analysis_loaded_key"] = analysis_key
-            st.rerun()
-
-        st.caption(
-            "Chưa gọi dữ liệu bài làm. App chỉ tổng hợp đúng lớp GV chọn khi bấm nút trên."
-        )
+    if not lop:
         return
 
     with st.spinner("Đang tổng hợp dữ liệu của lớp..."):
@@ -15842,23 +15825,12 @@ def du_lieu_va_tien_bo_hoc_sinh():
     lop = st.selectbox(
         "Chọn lớp",
         ds_lop,
+        index=None,
+        placeholder="Chọn lớp",
         key="gv_data_progress_class"
     )
 
-    progress_key = f"progress::{lop}"
-    if st.session_state.get("_gv_progress_loaded_key") != progress_key:
-        if st.button(
-            "🗂️ XEM DỮ LIỆU LỚP NÀY",
-            type="primary",
-            use_container_width=True,
-            key="gv_progress_load_selected_class"
-        ):
-            st.session_state["_gv_progress_loaded_key"] = progress_key
-            st.rerun()
-
-        st.caption(
-            "Chưa gọi lịch sử làm bài. App chỉ tải dữ liệu của đúng lớp GV chọn khi bấm nút trên."
-        )
+    if not lop:
         return
 
     rows = tong_hop_hoc_sinh_theo_lop(
@@ -19798,12 +19770,6 @@ def _sao_luu_ngan_hang_chinh_truoc_khi_don(bank, ly_do="don_hat_giong"):
 
 @_safe_fragment
 def ngan_hang_hat_giong():
-    if not _gv_lazy_gate(
-        "_gv_load_seed_bank",
-        "🌱 MỞ DỮ LIỆU NGÂN HÀNG HẠT GIỐNG"
-    ):
-        return
-
     st.header("🌱 NGÂN HÀNG HẠT GIỐNG")
     st.caption(
         "Kho nguồn đã được GV chuẩn hóa trước khi tải lên. App KHÔNG gọi AI để kiểm tra lại đáp án khi nhập; "
@@ -22807,12 +22773,6 @@ def hien_thi_kho_cau_tot_nghiep_da_nhap(bank):
 
 @_safe_fragment
 def xay_dung_ngan_hang_tot_nghiep():
-    if not _gv_lazy_gate(
-        "_gv_load_grad_bank",
-        "🎓 MỞ DỮ LIỆU NGÂN HÀNG TỐT NGHIỆP"
-    ):
-        return
-
     st.header("🎓 NGÂN HÀNG TỐT NGHIỆP – ĐỀ THẬT / ĐỀ THI THỬ")
     st.caption(
         "Phần này **không dùng AI để sáng tác câu mới**. GV đưa vào các đề thật/đề thi thử "
@@ -23638,6 +23598,8 @@ def quan_ly_diem_on_kiem_tra():
         lop = st.selectbox(
             "Chọn lớp",
             ds_lop,
+            index=None,
+            placeholder="Chọn lớp",
             key="gv_score_class"
         )
     with f2:
@@ -23652,20 +23614,7 @@ def quan_ly_diem_on_kiem_tra():
             key="gv_score_mode"
         )
 
-    score_key = f"score::{lop}::{che_do}"
-    if st.session_state.get("_gv_score_loaded_key") != score_key:
-        if st.button(
-            "🧾 XEM ĐIỂM THEO LỰA CHỌN",
-            type="primary",
-            use_container_width=True,
-            key="gv_score_load_selected"
-        ):
-            st.session_state["_gv_score_loaded_key"] = score_key
-            st.rerun()
-
-        st.caption(
-            "Chưa gọi lịch sử điểm. App chỉ tải dữ liệu của đúng lớp và loại bài GV đã chọn."
-        )
+    if not lop:
         return
 
     ds_co_so = loc_luot_co_diem_chinh_thuc(
@@ -23814,26 +23763,6 @@ def giao_vien():
         "📈 Tổng hợp lớp & đề xuất dạy học"
     ]
 )
-
-        # Khi GV chuyển sang chức năng khác, không tự giữ trạng thái
-        # "đã tải" của mục trước. Mục mới chỉ tải khi GV chủ động chọn tiếp.
-        menu_truoc = st.session_state.get("_gv_last_menu")
-        if menu_truoc != menu:
-            for _key in [
-                "_gv_load_seed_bank",
-                "_gv_load_build_bank",
-                "_gv_load_grad_bank",
-                "_gv_load_question_bank",
-                "_gv_load_exam_builder",
-                "_gv_load_students",
-            ]:
-                st.session_state.pop(_key, None)
-
-            # Các trang theo lớp cũng phải chọn lại đúng lớp trước khi tải.
-            st.session_state.pop("_gv_progress_loaded_key", None)
-            st.session_state.pop("_gv_class_analysis_loaded_key", None)
-            st.session_state.pop("_gv_score_loaded_key", None)
-            st.session_state["_gv_last_menu"] = menu
 
         st.divider()
 
