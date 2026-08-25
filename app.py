@@ -11365,19 +11365,15 @@ def ket_qua_hoc_sinh():
         key="gv_result_student"
     )
 
-    lich_su = [
-        x
-        for x in ds
-        if str(
-            x.get(
-                "hoc_sinh_id",
-                ""
-            )
-        ) == hs
-    ]
+    # Chỉ đọc lịch sử của đúng học sinh được GV chọn.
+    # Không dùng biến ds toàn cục/không tồn tại.
+    lich_su = lay_lich_su_cua_hoc_sinh(
+        hs
+    )
 
     profile = tao_ho_so_tu_lich_su(
-        hs
+        hs,
+        lich_su=lich_su
     )
 
     r1, r2, r3 = st.columns(3)
