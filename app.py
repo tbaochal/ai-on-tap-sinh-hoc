@@ -23870,9 +23870,24 @@ def giao_vien():
                 cau_hinh.get("Số câu", 1)
             )
 
-        # Chỉ cần số lượng ở sidebar. Có fallback để không còn hiện 0 giả
-        # khi manifest/count của backend cũ chưa được cập nhật.
-        bank_count = _teacher_bank_count_cached()
+        # Đếm theo chính kho mà trang "Ngân hàng câu hỏi" đang sử dụng để
+        # số hiển thị ở sidebar luôn khớp với số câu GV thực sự nhìn thấy.
+        # Nếu Supabase tạm trả rỗng, fallback file local đi cùng bản deploy.
+        try:
+            bank_count = len(doc_ngan_hang() or [])
+        except Exception:
+            bank_count = 0
+
+        if bank_count <= 0:
+            try:
+                bank_local = _doc_json_local(BANK_PATH, [])
+                if isinstance(bank_local, list):
+                    bank_count = len(bank_local)
+            except Exception:
+                pass
+
+        if bank_count <= 0:
+            bank_count = _teacher_bank_count_cached()
 
         st.write(
             f"✅ YCCĐ đã chọn: "
@@ -26982,6 +26997,14 @@ def hoc_sinh():
             )
 
         # Chỉ đếm SỐ CÂU CÒN LẠI và chỉ xem là hoàn thành khi trả lời ĐỦ.
+        # Streamlit lưu radio chưa chọn là None. Tuyệt đối không dùng str(None),
+        # vì str(None) == "None" và sẽ bị hiểu nhầm là học sinh đã trả lời.
+        def _hs_da_chon_gia_tri(value):
+            return value is not None and bool(str(value).strip())
+
+        def _hs_text_tra_loi(value):
+            return "" if value is None else str(value).strip()
+
         # Đặc biệt câu Đúng/Sai phải đủ cả 4 ý a–d; trả lời 1–3 ý vẫn tính là còn lại.
         con_lai_chua_day_du = 0
 
@@ -26990,31 +27013,27 @@ def hoc_sinh():
 
             if dang_check == "Đúng / Sai":
                 da_day_du = all(
-                    str(
+                    _hs_da_chon_gia_tri(
                         st.session_state.get(
                             f"hs_answer_{idx_q}_{j}",
-                            ""
+                            None
                         )
-                    ).strip()
+                    )
                     for j in range(1, 5)
                 )
             elif dang_check == "Trả lời ngắn":
-                da_day_du = bool(
-                    str(
-                        st.session_state.get(
-                            f"hs_short_answer_{idx_q}",
-                            ""
-                        )
-                    ).strip()
+                da_day_du = _hs_da_chon_gia_tri(
+                    st.session_state.get(
+                        f"hs_short_answer_{idx_q}",
+                        ""
+                    )
                 )
             else:
-                da_day_du = bool(
-                    str(
-                        st.session_state.get(
-                            f"hs_answer_{idx_q}",
-                            ""
-                        )
-                    ).strip()
+                da_day_du = _hs_da_chon_gia_tri(
+                    st.session_state.get(
+                        f"hs_answer_{idx_q}",
+                        None
+                    )
                 )
 
             if not da_day_du:
@@ -27215,12 +27234,12 @@ def hoc_sinh():
                     ),
                     start=1
                 ):
-                    hs = str(
+                    hs = _hs_text_tra_loi(
                         st.session_state.get(
                             f"hs_answer_{i}_{j}",
-                            ""
+                            None
                         )
-                    ).strip()
+                    )
 
                     dap = str(
                         nd.get(
@@ -27318,12 +27337,12 @@ def hoc_sinh():
                 )
 
             else:
-                raw = str(
+                raw = _hs_text_tra_loi(
                     st.session_state.get(
                         f"hs_answer_{i}",
-                        ""
+                        None
                     )
-                ).strip()
+                )
 
                 hs_text = raw
 
