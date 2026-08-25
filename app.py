@@ -208,6 +208,34 @@ from fast_store import (
     clear_fast_cache as _clear_fast_store_cache,
 )
 
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _teacher_bank_count_cached():
+    """Đếm số câu NH cho sidebar GV, có fallback khi manifest/count trả 0.
+
+    Ưu tiên đường đếm nhẹ. Nếu backend cũ chưa có manifest hợp lệ, dùng bảng
+    questions_v2; cuối cùng mới fallback document JSON đã cache.
+    """
+    try:
+        count = int(_document_count_shared(BANK_PATH, 0) or 0)
+        if count > 0:
+            return count
+    except Exception:
+        pass
+
+    try:
+        data_v2 = _fast_get_all_questions_v2(expected_count=None)
+        if isinstance(data_v2, list) and data_v2:
+            return len(data_v2)
+    except Exception:
+        pass
+
+    try:
+        return len(_doc_shared_list_cached(BANK_PATH) or [])
+    except Exception:
+        return 0
+
+
 # Ảnh/sơ đồ của đề thật: hiển thị vừa đủ để đọc, không kéo tràn toàn bộ màn hình.
 GRAD_IMAGE_DISPLAY_WIDTH = 620
 # Ảnh hạt giống dùng kích thước hiển thị tương tự, nhưng lưu/đọc độc lập.
@@ -361,6 +389,10 @@ def luu_ngan_hang(data):
     ok = _luu_document_shared(BANK_PATH, data)
     try:
         _doc_ngan_hang_processed_cached.clear()
+    except Exception:
+        pass
+    try:
+        _teacher_bank_count_cached.clear()
     except Exception:
         pass
     _clear_shared_read_caches()
@@ -15392,7 +15424,9 @@ def hien_thi_the_tien_bo_day_du(row, index=None):
 
 
 
+@st.cache_data(ttl=30, show_spinner=False)
 def tong_hop_hoc_sinh_theo_lop(lop_chon):
+    # Stage 11: cache ngắn để đổi tab/chọn HS không tổng hợp lại cả lớp.
     # Stage 6: một lớp chỉ tạo 2 truy vấn chính (students + attempts),
     # sau đó tính toàn bộ HS trong RAM; không query từng HS lặp lại.
     if lop_chon and lop_chon != "Tất cả":
@@ -15474,6 +15508,12 @@ def tao_excel_tong_hop_hoc_sinh_lop(lop_chon):
     )
 
     ma_hs = {r["Mã học sinh"] for r in rows}
+
+    attempts_by_sid = {}
+    for lan in lich_su:
+        sid = str(lan.get("hoc_sinh_id", "") or "").strip().upper()
+        if sid:
+            attempts_by_sid.setdefault(sid, []).append(lan)
 
     chi_tiet = []
 
@@ -15571,7 +15611,8 @@ def tao_excel_tong_hop_hoc_sinh_lop(lop_chon):
             ]
 
             profile = tao_ho_so_tu_lich_su(
-                ma
+                ma,
+                lich_su=attempts_by_sid.get(str(ma).strip().upper(), [])
             )
 
             for x in tom_tat_diem_yeu(
@@ -15628,8 +15669,9 @@ def tao_excel_tong_hop_hoc_sinh_lop(lop_chon):
                 "Mã học sinh"
             ]
 
-            ls_hs = lay_lich_su_cua_hoc_sinh(
-                ma
+            ls_hs = attempts_by_sid.get(
+                str(ma).strip().upper(),
+                []
             )
 
             for tb_row in phan_tich_tien_bo_thuc_theo_don_vi(
@@ -16545,55 +16587,74 @@ def du_lieu_va_tien_bo_hoc_sinh():
             "Có 2 loại file: báo cáo từng học sinh của lớp và báo cáo bức tranh chung của lớp."
         )
 
-        file_hs = tao_excel_tong_hop_hoc_sinh_lop(
-            lop
-        )
+        export_key = f"_gv_progress_exports_{chuan_hoa_ten_lop(lop)}"
+        exports = st.session_state.get(export_key)
 
-        file_lop = tao_excel_tong_hop_chung_lop(
-            lop
-        )
-
-        f1, f2 = st.columns(
-            2
-        )
-
-        with f1:
-            st.download_button(
-                "⬇️ TẢI TỔNG HỢP TỪNG HỌC SINH",
-                data=file_hs,
-                file_name=(
-                    f"tong_hop_tung_hoc_sinh_{chuan_hoa_ten_lop(lop)}.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
+        if not isinstance(exports, dict):
+            st.info(
+                "⚡ File Excel chỉ được tạo khi GV cần tải, nên mở mục Dữ liệu & tiến bộ sẽ nhanh hơn."
+            )
+            if st.button(
+                "⚙️ CHUẨN BỊ 2 FILE EXCEL",
+                type="primary",
                 use_container_width=True,
-                key="gv_download_student_progress"
-            )
+                key=f"gv_prepare_progress_exports_{chuan_hoa_ten_lop(lop)}"
+            ):
+                with st.spinner("Đang tạo báo cáo Excel..."):
+                    exports = {
+                        "file_hs": tao_excel_tong_hop_hoc_sinh_lop(lop),
+                        "file_lop": tao_excel_tong_hop_chung_lop(lop),
+                    }
+                    st.session_state[export_key] = exports
+                st.rerun()
+        else:
+            f1, f2 = st.columns(2)
 
-            st.caption(
-                "Gồm: tổng hợp từng HS, lịch sử lượt làm, điểm yếu và tiến bộ theo cùng YCCĐ/mức độ/năng lực."
-            )
+            with f1:
+                st.download_button(
+                    "⬇️ TẢI TỔNG HỢP TỪNG HỌC SINH",
+                    data=exports.get("file_hs", b""),
+                    file_name=(
+                        f"tong_hop_tung_hoc_sinh_{chuan_hoa_ten_lop(lop)}.xlsx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                    use_container_width=True,
+                    key="gv_download_student_progress"
+                )
 
-        with f2:
-            st.download_button(
-                "⬇️ TẢI TỔNG HỢP CHUNG CỦA LỚP",
-                data=file_lop,
-                file_name=(
-                    f"tong_hop_chung_lop_{chuan_hoa_ten_lop(lop)}.xlsx"
-                ),
-                mime=(
-                    "application/vnd.openxmlformats-officedocument."
-                    "spreadsheetml.sheet"
-                ),
-                use_container_width=True,
-                key="gv_download_class_summary"
-            )
+                st.caption(
+                    "Gồm: tổng hợp từng HS, lịch sử lượt làm, điểm yếu và tiến bộ theo cùng YCCĐ/mức độ/năng lực."
+                )
 
-            st.caption(
-                "Gồm: tổng quan lớp, YCCĐ, mức độ, năng lực, dạng câu, bài và chương."
-            )
+            with f2:
+                st.download_button(
+                    "⬇️ TẢI TỔNG HỢP CHUNG CỦA LỚP",
+                    data=exports.get("file_lop", b""),
+                    file_name=(
+                        f"tong_hop_chung_lop_{chuan_hoa_ten_lop(lop)}.xlsx"
+                    ),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                    use_container_width=True,
+                    key="gv_download_class_summary"
+                )
+
+                st.caption(
+                    "Gồm: tổng quan lớp, YCCĐ, mức độ, năng lực, dạng câu, bài và chương."
+                )
+
+            if st.button(
+                "🔄 Tạo lại file theo dữ liệu mới nhất",
+                use_container_width=False,
+                key=f"gv_refresh_progress_exports_{chuan_hoa_ten_lop(lop)}"
+            ):
+                st.session_state.pop(export_key, None)
+                st.rerun()
 
 
 
@@ -23815,8 +23876,9 @@ def giao_vien():
                 cau_hinh.get("Số câu", 1)
             )
 
-        # Chỉ cần số lượng ở sidebar: đọc manifest/count thay vì tải toàn bộ NH.
-        bank_count = _document_count_cached(BANK_PATH)
+        # Chỉ cần số lượng ở sidebar. Có fallback để không còn hiện 0 giả
+        # khi manifest/count của backend cũ chưa được cập nhật.
+        bank_count = _teacher_bank_count_cached()
 
         st.write(
             f"✅ YCCĐ đã chọn: "
@@ -23938,10 +24000,21 @@ def luu_lich_su_hoc_sinh(ds):
 
 def them_luot_lam_hoc_sinh(ban_ghi):
     """Ghi đúng 1 lượt làm; không tải/ghi lại lịch sử toàn trường."""
-    return _fast_append_attempt(
+    ok = _fast_append_attempt(
         ban_ghi,
         local_history_path=HS_HISTORY_PATH
     )
+    if ok:
+        # Xóa các bảng tổng hợp ngắn hạn để GV/HS thấy lượt mới ngay.
+        try:
+            tong_hop_hoc_sinh_theo_lop.clear()
+        except Exception:
+            pass
+        try:
+            tinh_bang_xep_hang_lop.clear()
+        except Exception:
+            pass
+    return ok
 
 
 def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
@@ -25534,6 +25607,7 @@ def hoc_sinh():
         "hs_portal_mode": "",
         # Xếp hạng lớp là truy vấn phụ; chỉ tải khi HS chủ động xem.
         "hs_show_rank": False,
+        "hs_progress_show_rank": False,
     }
 
     for key, value in defaults.items():
@@ -25553,6 +25627,7 @@ def hoc_sinh():
 
     def _hs_change_mode_cb():
         st.session_state["hs_portal_mode"] = ""
+        st.session_state["hs_progress_show_rank"] = False
 
     # ======================================================
     # NHẬN DIỆN HỌC SINH — STAGE 6.1 FAST LOGIN
@@ -25656,6 +25731,7 @@ def hoc_sinh():
             st.session_state.pop("_hs_profile_cache_key", None)
             st.session_state.pop("_hs_history_cache", None)
             st.session_state["hs_show_rank"] = False
+            st.session_state["hs_progress_show_rank"] = False
             for _k in list(st.session_state.keys()):
                 if str(_k).startswith("_hs_bank_session_"):
                     st.session_state.pop(_k, None)
@@ -25773,19 +25849,13 @@ def hoc_sinh():
             ]
 
         elif can_tot_nghiep:
-            # Tốt nghiệp chỉ tải dữ liệu khi HS thật sự chọn chế độ này.
-            if _chuan_khoi_hs_fast(hs_khoi_query) == "Khối 12":
-                bank_tot_nghiep_hs_fast = doc_ngan_hang_tot_nghiep_thuc_te()
-                # NH ôn tập chỉ là nguồn bổ sung, tải sau khi đã chọn chế độ TN.
-                bank_on_tap_hs_fast = doc_ngan_hang_hs_fast(hs_khoi_query)
-            bank = [
-                q for q in (bank_on_tap_hs_fast + bank_tot_nghiep_hs_fast)
-                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
-                and q.get("duoc_dung_luyen_hs", True)
-            ]
+            # STAGE 11: mở màn hình Luyện tốt nghiệp tức thì.
+            # Hai ngân hàng chỉ tải khi HS bấm BẮT ĐẦU LƯỢT LUYỆN.
+            bank = []
 
         # Lịch sử không cần tải ngân hàng. Ôn bài/chương chưa cần tải lịch sử.
-        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du or can_tot_nghiep):
+        # Tốt nghiệp được kiểm tra đủ form tại thời điểm bấm BẮT ĐẦU.
+        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du):
             st.warning("Ngân hàng chưa có câu đã duyệt phù hợp với khối của em.")
             return
 
@@ -25832,6 +25902,9 @@ def hoc_sinh():
         ten_luot = che_do
         # Ôn bài/chương: không tải câu hỏi cho đến khi bấm BẮT ĐẦU.
         defer_scope_load = False
+        # Tốt nghiệp: cũng chỉ tải 2 ngân hàng khi bấm BẮT ĐẦU.
+        defer_grad_load = False
+        pool_on_tap_12 = []
 
         # --------------------------------------------------
         # LUYỆN THEO GỢI Ý HÔM NAY
@@ -26453,12 +26526,10 @@ def hoc_sinh():
                     for x in lich_su_hs
                 ) / len(lich_su_hs)
 
-                xh_ca_nhan = lay_xep_hang_ca_nhan_hs(
-                    hs_id_chuan,
-                    hs_lop
-                )
+                # Tính mức làm chủ từ chính lịch sử của em (không cần tải dữ liệu cả lớp).
+                diem_xh_noi_bo = tinh_diem_xep_hang_hoc_sinh(lich_su_hs)
 
-                p1, p2, p3, p4 = st.columns(4)
+                p1, p2, p3 = st.columns(3)
 
                 with p1:
                     st.metric(
@@ -26475,17 +26546,28 @@ def hoc_sinh():
                 with p3:
                     st.metric(
                         "Mức làm chủ tích lũy",
-                        f"{(xh_ca_nhan or {}).get('tich_luy', profile.get('ti_le_dung', 0) * 100):.0f}%"
+                        f"{diem_xh_noi_bo.get('tich_luy', profile.get('ti_le_dung', 0) * 100):.0f}%"
                     )
 
-                with p4:
+                # Xếp hạng cần dữ liệu cả lớp nên chỉ tải khi HS chủ động xem.
+                if st.session_state.get("hs_progress_show_rank", False):
+                    with st.spinner("Đang lấy hạng trong lớp..."):
+                        xh_ca_nhan = lay_xep_hang_ca_nhan_hs(hs_id_chuan, hs_lop)
                     if xh_ca_nhan:
                         st.metric(
-                            "Hạng hiện tại",
+                            "🏆 Hạng hiện tại",
                             f"{xh_ca_nhan['hang']}/{xh_ca_nhan['si_so_co_du_lieu']}"
                         )
                     else:
-                        st.metric("Hạng hiện tại", "—")
+                        st.caption("Chưa đủ dữ liệu để xếp hạng trong lớp.")
+                else:
+                    if st.button(
+                        "🏆 Xem hạng của em",
+                        use_container_width=False,
+                        key="hs_progress_rank_btn"
+                    ):
+                        st.session_state["hs_progress_show_rank"] = True
+                        st.rerun()
 
                 tb_xu_huong_hs = tinh_tien_bo_hoc_sinh(lich_su_hs)
                 xh_text = tb_xu_huong_hs.get("xu_huong", "Chưa có dữ liệu")
@@ -26557,36 +26639,13 @@ def hoc_sinh():
         # --------------------------------------------------
         # LUYỆN TỐT NGHIỆP
         # --------------------------------------------------
-        else:
-            pool12 = [
-                q for q in bank_tot_nghiep_hs_fast
-                if cau_tot_nghiep_du_dieu_kien_su_dung(q)
-            ]
-            pool_on_tap_12 = [
-                q for q in bank_on_tap_hs_fast
-                if cau_on_tap_bo_sung_du_dieu_kien_tot_nghiep(q)
-            ]
-
+        elif che_do == CHE_DO_TOT_NGHIEP:
             dang_counts = {
                 "Trắc nghiệm 4 lựa chọn": 18,
                 "Đúng / Sai": 4,
                 "Trả lời ngắn": 6
             }
             so_cau = 28
-
-            _, thieu_form = rut_de_tot_nghiep_tu_de_that(
-                pool12,
-                seed="kiem-tra-hs",
-                bank_on_tap=pool_on_tap_12
-            )
-            if thieu_form:
-                for item in thieu_form:
-                    st.warning(
-                        f"Thiếu {item.get('Thiếu', 0)} câu dạng {item.get('Dạng','')} "
-                        "để tạo đủ một đề tốt nghiệp không trùng câu."
-                    )
-            else:
-                pool = pool12
 
             pham_vi = {
                 "khoi": "Khối 12",
@@ -26595,15 +26654,25 @@ def hoc_sinh():
             }
             ten_luot = "Luyện tốt nghiệp THPT"
 
-            st.info(
-                "Mỗi lượt là một mã đề mới **18/4/6**. Nguồn chính vẫn là Ngân hàng tốt nghiệp; "
-                f"app chỉ bổ sung tối đa **{GRAD_MAX_CAU_TU_NH_ON_TAP}/28 câu** phù hợp từ Ngân hàng ôn tập Khối 12. "
-                "Không lặp câu trong cùng mã đề và vẫn giữ nguyên ảnh/bảng của câu gốc."
-            )
+            if _chuan_khoi_hs_fast(hs_khoi_ds, hs_lop) != "Khối 12":
+                st.warning("Chế độ Luyện tốt nghiệp THPT hiện dành cho học sinh Khối 12.")
+            else:
+                defer_grad_load = True
+                st.info(
+                    "Mỗi lượt là một mã đề mới **18/4/6**. Nguồn chính vẫn là Ngân hàng tốt nghiệp; "
+                    f"app chỉ bổ sung tối đa **{GRAD_MAX_CAU_TU_NH_ON_TAP}/28 câu** phù hợp từ Ngân hàng ôn tập Khối 12. "
+                    "Không lặp câu trong cùng mã đề và vẫn giữ nguyên ảnh/bảng của câu gốc."
+                )
+                st.caption(
+                    "⚡ Màn hình mở ngay; ngân hàng chỉ được tải và kiểm tra đủ form khi em bấm "
+                    "**BẮT ĐẦU LƯỢT LUYỆN**."
+                )
 
-        if pool or defer_scope_load:
+        if pool or defer_scope_load or defer_grad_load:
             if pool:
                 st.caption(f"Ngân hàng phù hợp: {len(pool)} câu.")
+            elif defer_grad_load:
+                pass
             else:
                 st.caption("⚡ Chưa tải nội dung câu hỏi — tải đúng phạm vi khi bắt đầu.")
 
@@ -26618,6 +26687,33 @@ def hoc_sinh():
                 type="primary",
                 use_container_width=True
             ):
+
+                # STAGE 11: Tốt nghiệp chỉ bây giờ mới tải 2 ngân hàng.
+                if defer_grad_load:
+                    with st.spinner("Đang chuẩn bị mã đề tốt nghiệp 18/4/6..."):
+                        bank_tot_nghiep_hs_fast = doc_ngan_hang_tot_nghiep_thuc_te()
+                        bank_on_tap_hs_fast = doc_ngan_hang_hs_fast("Khối 12")
+                        pool12 = [
+                            q for q in bank_tot_nghiep_hs_fast
+                            if cau_tot_nghiep_du_dieu_kien_su_dung(q)
+                        ]
+                        pool_on_tap_12 = [
+                            q for q in bank_on_tap_hs_fast
+                            if cau_on_tap_bo_sung_du_dieu_kien_tot_nghiep(q)
+                        ]
+                        _, thieu_form = rut_de_tot_nghiep_tu_de_that(
+                            pool12,
+                            seed="kiem-tra-hs",
+                            bank_on_tap=pool_on_tap_12
+                        )
+                    if thieu_form:
+                        for item in thieu_form:
+                            st.warning(
+                                f"Thiếu {item.get('Thiếu', 0)} câu dạng {item.get('Dạng','')} "
+                                "để tạo đủ một đề tốt nghiệp không trùng câu."
+                            )
+                        return
+                    pool = pool12
 
                 # STAGE 10: Ôn bài/chương chỉ bây giờ mới chạm Supabase.
                 if defer_scope_load:
@@ -26891,33 +26987,25 @@ def hoc_sinh():
                 height=75
             )
 
-        # Theo dõi nhanh số câu đã có thao tác trả lời.
-        da_tra_loi = 0
+        # Chỉ đếm SỐ CÂU CÒN LẠI và chỉ xem là hoàn thành khi trả lời ĐỦ.
+        # Đặc biệt câu Đúng/Sai phải đủ cả 4 ý a–d; trả lời 1–3 ý vẫn tính là còn lại.
+        con_lai_chua_day_du = 0
 
-        for idx_q, q_check in enumerate(
-            de_thi,
-            start=1
-        ):
-            dang_check = q_check.get(
-                "dang_cau",
-                ""
-            )
+        for idx_q, q_check in enumerate(de_thi, start=1):
+            dang_check = q_check.get("dang_cau", "")
 
             if dang_check == "Đúng / Sai":
-                co_tra_loi = any(
+                da_day_du = all(
                     str(
                         st.session_state.get(
                             f"hs_answer_{idx_q}_{j}",
                             ""
                         )
                     ).strip()
-                    for j in range(
-                        1,
-                        5
-                    )
+                    for j in range(1, 5)
                 )
             elif dang_check == "Trả lời ngắn":
-                co_tra_loi = bool(
+                da_day_du = bool(
                     str(
                         st.session_state.get(
                             f"hs_short_answer_{idx_q}",
@@ -26926,7 +27014,7 @@ def hoc_sinh():
                     ).strip()
                 )
             else:
-                co_tra_loi = bool(
+                da_day_du = bool(
                     str(
                         st.session_state.get(
                             f"hs_answer_{idx_q}",
@@ -26935,20 +27023,15 @@ def hoc_sinh():
                     ).strip()
                 )
 
-            if co_tra_loi:
-                da_tra_loi += 1
+            if not da_day_du:
+                con_lai_chua_day_du += 1
 
-        st.progress(
-            (
-                da_tra_loi / len(de_thi)
-                if de_thi
-                else 0
+        if con_lai_chua_day_du:
+            st.warning(
+                f"Em còn **{con_lai_chua_day_du} câu** chưa trả lời đầy đủ."
             )
-        )
-
-        st.caption(
-            f"Đã trả lời **{da_tra_loi}/{len(de_thi)} câu**"
-        )
+        else:
+            st.success("✅ Em đã trả lời đầy đủ tất cả các câu.")
 
         for i, q in enumerate(
             de_thi,
@@ -27048,19 +27131,7 @@ def hoc_sinh():
 
             st.divider()
 
-        con_trong = max(
-            0,
-            len(de_thi) - da_tra_loi
-        )
-
-        if con_trong:
-            st.warning(
-                f"Em còn **{con_trong} câu** chưa trả lời đầy đủ."
-            )
-        else:
-            st.success(
-                "✅ Em đã trả lời tất cả các câu."
-            )
+        # Số câu còn lại đã được hiển thị chính xác ở đầu bài; không lặp lại ở đây.
 
         if st.button(
             "✅ NỘP BÀI",
