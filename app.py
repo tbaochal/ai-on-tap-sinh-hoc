@@ -451,7 +451,7 @@ def luu_ngan_hang(data):
 
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _gv_lay_danh_sach_lop_nhe():
     """Lấy tên lớp cho khu GV mà không tải toàn bộ dữ liệu học sinh/lượt làm."""
     cac_lop = set()
@@ -8344,21 +8344,13 @@ def khoi_phuc_cau_checkpoint_vao_cho_duyet(
 
 
 def phan_tich_do_phu_va_tao_tu_dong_on_tap():
-    bank = doc_ngan_hang()
-
     st.subheader("⚡ XÂY DỰNG TỰ ĐỘNG THEO ĐỘ PHỦ")
     st.caption(
         "Phân tích câu đã có, xác định phần còn thiếu và tự động bổ sung. "
         "Hạt giống đã kiểm tra an toàn được đưa vào ngân hàng trước; phần Xây dựng chỉ tạo phần còn thiếu."
     )
 
-    if not bank:
-        st.info(
-            "Ngân hàng chuẩn hiện chưa có câu. Bạn vẫn có thể chọn phạm vi và "
-            "đặt mục tiêu để hệ thống bắt đầu xây dựng từ hạt giống + câu mới."
-        )
-
-    with st.expander("📊 Xem độ phủ và phần còn thiếu", expanded=False):
+    with st.expander("📊 Xem độ phủ và phần còn thiếu", expanded=True):
 
         st.caption(
             "Phân tích số câu hiện có theo từng YCCĐ và mức độ "
@@ -8373,8 +8365,13 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
             khoi_cov = st.selectbox(
                 "🎓 Khối phân tích",
                 ds_khoi_cov,
+                index=None,
+                placeholder="Chọn khối",
                 key="coverage_khoi"
             )
+
+        if not khoi_cov:
+            return
 
         ds_chuong_cov = list(
             KHO_YCCD.get(khoi_cov, {}).keys()
@@ -8384,8 +8381,13 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
             chuong_cov = st.selectbox(
                 "📚 Chương",
                 ds_chuong_cov,
+                index=None,
+                placeholder="Chọn chương",
                 key="coverage_chuong"
             )
+
+        if not chuong_cov:
+            return
 
         ds_bai_cov = list(
             KHO_YCCD.get(khoi_cov, {})
@@ -8397,7 +8399,45 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
             bai_cov = st.selectbox(
                 "📖 Bài",
                 ["Tất cả"] + ds_bai_cov,
+                index=None,
+                placeholder="Chọn bài",
                 key="coverage_bai"
+            )
+
+        if not bai_cov:
+            return
+
+        # Chỉ đến đây mới gọi dữ liệu câu hỏi, và chỉ đúng phạm vi GV vừa chọn.
+        try:
+            bank_scope = _fast_get_questions_v2_by_scope(
+                khoi=khoi_cov,
+                chuong=chuong_cov,
+                bai="" if bai_cov == "Tất cả" else bai_cov,
+                expected_total=None,
+            )
+            bank = bank_scope if isinstance(bank_scope, list) else []
+            _v2_scope_ok = isinstance(bank_scope, list)
+        except Exception:
+            bank = []
+            _v2_scope_ok = False
+
+        # Chỉ fallback legacy khi đường V2 thật sự lỗi; phạm vi V2 rỗng là dữ liệu rỗng hợp lệ.
+        if not _v2_scope_ok:
+            bank_all = doc_ngan_hang()
+            bank = [
+                q for q in (bank_all or [])
+                if lay_khoi_cau_cov(q) == chuan_hoa_khoi_cov(khoi_cov)
+                and chuan_hoa_text_cov(q.get("chuong", "")) == chuan_hoa_text_cov(chuong_cov)
+                and (
+                    bai_cov == "Tất cả"
+                    or chuan_hoa_text_cov(q.get("bai", "")) == chuan_hoa_text_cov(bai_cov)
+                )
+            ]
+
+        if not bank:
+            st.info(
+                "Phạm vi này hiện chưa có câu trong ngân hàng. "
+                "Bạn vẫn có thể đặt mục tiêu để hệ thống xây dựng phần còn thiếu."
             )
 
         muc_tieu_moi_muc = st.number_input(
@@ -13560,6 +13600,84 @@ def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None
 
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def _gv_tong_hop_lop_nhe(lop_chon):
+    """Tổng hợp lớp chỉ từ attempts đúng lớp; không cần tải roster học sinh."""
+    lich_su = _fast_get_attempts_class(
+        lop_chon,
+        local_history_path=HS_HISTORY_PATH
+    ) if lop_chon else []
+
+    tong_hop = {
+        "so_luot": len(lich_su),
+        "hoc_sinh": {},
+        "yccd": {},
+        "muc_do": {},
+        "nang_luc": {},
+        "dang_cau": {},
+        "bai": {},
+        "chuong": {},
+    }
+
+    def cap_nhat(bucket, key, dung, ma):
+        key = str(key or "").strip()
+        if not key:
+            return
+        s = bucket.setdefault(
+            key,
+            {"tong": 0, "dung": 0, "sai": 0, "hoc_sinh_sai": set()}
+        )
+        s["tong"] += 1
+        s["dung"] += int(bool(dung))
+        s["sai"] += int(not bool(dung))
+        if not dung and ma:
+            s["hoc_sinh_sai"].add(ma)
+
+    for lan in lich_su:
+        ma = str(lan.get("hoc_sinh_id", "") or "").strip().upper()
+        hs_stat = tong_hop["hoc_sinh"].setdefault(
+            ma,
+            {
+                "ma": ma,
+                "so_luot": 0,
+                "tong_don_vi": 0,
+                "dung_don_vi": 0,
+                "diem": [],
+            }
+        )
+        hs_stat["so_luot"] += 1
+        hs_stat["diem"].append(float(lan.get("diem", 0) or 0))
+
+        for item in lan.get("chi_tiet", []) or []:
+            q = item.get("cau_snapshot", {}) or {}
+            dang = str(item.get("dang_cau", q.get("dang_cau", "")) or "").strip()
+            bai = str(q.get("bai", "") or "").strip()
+            chuong = str(q.get("chuong", "") or "").strip()
+
+            units = item.get("don_vi_danh_gia", []) or []
+            if not units:
+                units = [{
+                    "yccd": q.get("yccd", ""),
+                    "muc_do": q.get("muc_do", ""),
+                    "nang_luc": q.get("thanh_phan_nang_luc", ""),
+                    "dung": bool(item.get("dung_toan_cau"))
+                }]
+
+            for unit in units:
+                dung = bool(unit.get("dung"))
+                hs_stat["tong_don_vi"] += 1
+                hs_stat["dung_don_vi"] += int(dung)
+
+                cap_nhat(tong_hop["yccd"], unit.get("yccd", ""), dung, ma)
+                cap_nhat(tong_hop["muc_do"], unit.get("muc_do", ""), dung, ma)
+                cap_nhat(tong_hop["nang_luc"], unit.get("nang_luc", ""), dung, ma)
+                cap_nhat(tong_hop["dang_cau"], dang, dung, ma)
+                cap_nhat(tong_hop["bai"], bai, dung, ma)
+                cap_nhat(tong_hop["chuong"], chuong, dung, ma)
+
+    return tong_hop
+
+
 def bang_thong_ke_bucket(bucket, ten_cot):
     rows = []
 
@@ -13632,7 +13750,7 @@ def phan_tich_lop_hoc():
         return
 
     with st.spinner("Đang tổng hợp dữ liệu của lớp..."):
-        data = tong_hop_du_lieu_lop(lop)
+        data = _gv_tong_hop_lop_nhe(lop)
 
     hs_stats = list((data.get("hoc_sinh", {}) or {}).values())
     if not hs_stats:
@@ -15162,7 +15280,8 @@ def du_lieu_va_tien_bo_hoc_sinh():
                 )
 
             profile = tao_ho_so_tu_lich_su(
-                ma
+                ma,
+                lich_su=lich_su_hs
             )
 
             # ==================================================
@@ -21250,6 +21369,7 @@ def rut_de_tot_nghiep_tu_de_that(
     return selected, missing
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def tao_file_mau_ngan_hang_tot_nghiep():
     """Tạo Word mẫu tối giản để GV nhập đề có đáp án/hướng dẫn giải."""
     from docx import Document
@@ -21975,9 +22095,32 @@ def xay_dung_ngan_hang_tot_nghiep():
                     )
 
     else:
-        bank = doc_ngan_hang_tot_nghiep_thuc_te()
         st.divider()
         st.subheader("② Kiểm tra & duyệt ngân hàng")
+
+        pre1, pre2 = st.columns(2)
+        with pre1:
+            type_filter_pre = st.selectbox(
+                "Lọc theo dạng",
+                ["Tất cả", "Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"],
+                index=None,
+                placeholder="Chọn dạng câu",
+                key="grad_real_filter_type_pre",
+            )
+        with pre2:
+            status_filter_pre = st.selectbox(
+                "Lọc theo trạng thái",
+                ["Tất cả", "Chờ rà soát", "Đã rà soát", "GV đã duyệt", "Cần GV xem", "Thiếu đáp án"],
+                index=None,
+                placeholder="Chọn trạng thái",
+                key="grad_real_filter_status_pre",
+            )
+
+        if not type_filter_pre or not status_filter_pre:
+            return
+
+        # Chỉ sau khi GV chọn bộ lọc mới tải ngân hàng tốt nghiệp.
+        bank = doc_ngan_hang_tot_nghiep_thuc_te()
 
         if not bank:
             st.info("Chưa có câu nào trong ngân hàng tốt nghiệp từ đề thật.")
@@ -22088,17 +22231,25 @@ def xay_dung_ngan_hang_tot_nghiep():
 
             f1, f2, f3 = st.columns(3)
             with f1:
-                source_filter = st.selectbox("Lọc theo file nguồn", ["Tất cả"] + all_sources, key="grad_real_filter_source")
+                source_filter = st.selectbox(
+                    "Lọc theo file nguồn",
+                    ["Tất cả"] + all_sources,
+                    key="grad_real_filter_source"
+                )
             with f2:
+                _type_options = ["Tất cả", "Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"]
                 type_filter = st.selectbox(
                     "Lọc theo dạng",
-                    ["Tất cả", "Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"],
+                    _type_options,
+                    index=_type_options.index(type_filter_pre),
                     key="grad_real_filter_type",
                 )
             with f3:
+                _status_options = ["Tất cả", "Chờ rà soát", "Đã rà soát", "GV đã duyệt", "Cần GV xem", "Thiếu đáp án"]
                 status_filter = st.selectbox(
                     "Lọc theo trạng thái",
-                    ["Tất cả", "Chờ rà soát", "Đã rà soát", "GV đã duyệt", "Cần GV xem", "Thiếu đáp án"],
+                    _status_options,
+                    index=_status_options.index(status_filter_pre),
                     key="grad_real_filter_status",
                 )
 
@@ -22650,10 +22801,12 @@ def quan_ly_diem_on_kiem_tra():
                 CHE_DO_KIEM_TRA_MA_TRAN,
                 CHE_DO_TOT_NGHIEP
             ],
+            index=None,
+            placeholder="Chọn loại bài",
             key="gv_score_mode"
         )
 
-    if not lop:
+    if not lop or not che_do:
         return
 
     ds_co_so = loc_luot_co_diem_chinh_thuc(
