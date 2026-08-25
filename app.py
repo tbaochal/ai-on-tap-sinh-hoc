@@ -450,6 +450,83 @@ def luu_ngan_hang(data):
     return ok
 
 
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _gv_lay_danh_sach_lop_nhe():
+    """Lấy tên lớp cho khu GV mà không tải toàn bộ dữ liệu học sinh/lượt làm."""
+    cac_lop = set()
+    client = _supabase_client()
+
+    if client is not None:
+        try:
+            start = 0
+            while True:
+                res = (
+                    client.table("students")
+                    .select("class_name")
+                    .range(start, start + 999)
+                    .execute()
+                )
+                rows = getattr(res, "data", None) or []
+                for row in rows:
+                    lop = str((row or {}).get("class_name", "") or "").strip()
+                    if lop:
+                        cac_lop.add(lop)
+                if len(rows) < 1000:
+                    break
+                start += 1000
+        except Exception:
+            pass
+
+        if not cac_lop:
+            try:
+                start = 0
+                while True:
+                    res = (
+                        client.table("student_attempts")
+                        .select("class_name")
+                        .range(start, start + 999)
+                        .execute()
+                    )
+                    rows = getattr(res, "data", None) or []
+                    for row in rows:
+                        lop = str((row or {}).get("class_name", "") or "").strip()
+                        if lop:
+                            cac_lop.add(lop)
+                    if len(rows) < 1000:
+                        break
+                    start += 1000
+            except Exception:
+                pass
+
+    if not cac_lop:
+        try:
+            ds = _doc_json_local(STUDENT_PATH, [])
+            for hs in ds if isinstance(ds, list) else []:
+                lop = str((hs or {}).get("lop", "") or "").strip()
+                if lop:
+                    cac_lop.add(lop)
+        except Exception:
+            pass
+
+    if not cac_lop:
+        try:
+            ds = _doc_json_local(HS_HISTORY_PATH, [])
+            for lan in ds if isinstance(ds, list) else []:
+                pham_vi = (lan or {}).get("pham_vi", {}) or {}
+                lop = str(
+                    (lan or {}).get("lop")
+                    or (pham_vi.get("lop") if isinstance(pham_vi, dict) else "")
+                    or ""
+                ).strip()
+                if lop:
+                    cac_lop.add(lop)
+        except Exception:
+            pass
+
+    return sorted(cac_lop)
+
+
 def _chuan_khoi_hs_fast(khoi="", lop=""):
     """Chuẩn hóa khối HS để truy vấn đúng phần ngân hàng cần dùng."""
     raw = str(khoi or "").strip()
@@ -7578,21 +7655,24 @@ def tao_cau_hoi_ai():
         "Chế độ thủ công chỉ dùng khi GV muốn can thiệp vào một YCCĐ cụ thể."
     )
 
-    tab_auto, tab_manual = st.tabs([
-        "⚡ Xây dựng tự động",
-        "✍️ Tạo theo YCCĐ (nâng cao)"
-    ])
+    che_do_xay = st.radio(
+        "Chế độ xây dựng",
+        [
+            "⚡ Xây dựng tự động",
+            "✍️ Tạo theo YCCĐ (nâng cao)"
+        ],
+        index=None,
+        horizontal=True,
+        key="gv_build_bank_mode"
+    )
 
-    # ======================================================
-    # TAB 1 - TỰ ĐỘNG: LUỒNG CHÍNH
-    # ======================================================
-    with tab_auto:
+    if not che_do_xay:
+        return
+
+    if che_do_xay == "⚡ Xây dựng tự động":
         phan_tich_do_phu_va_tao_tu_dong_on_tap()
 
-    # ======================================================
-    # TAB 2 - THỦ CÔNG: CHỈ KHI GV CẦN
-    # ======================================================
-    with tab_manual:
+    else:
         st.caption(
             "Dùng phần này khi GV đã chọn YCCĐ trong 📚 Kho YCCĐ "
             "và muốn chủ động số câu, mức độ, dạng câu hoặc nguồn."
@@ -7623,14 +7703,12 @@ def tao_cau_hoi_ai():
             "Nguồn được truy xuất linh hoạt phía sau để chọn căn cứ phù hợp nhất cho từng câu."
         )
 
-        so_hat_giong_phu_hop = dem_hat_giong_phu_hop_yccd_da_chon()
-        tong_hat_giong = len(doc_ngan_hang_hat_giong())
+        tong_hat_giong = _document_count_cached(SEED_BANK_PATH)
 
         if tong_hat_giong > 0:
             st.success(
-                f"🌱 Có **{tong_hat_giong} câu hạt giống** trong kho; "
-                f"app tìm thấy **{so_hat_giong_phu_hop} nhóm hạt giống phù hợp** "
-                "với cấu hình hiện tại. Hệ thống sẽ kết hợp hạt giống + câu mới để tăng đa dạng."
+                f"🌱 Có **{tong_hat_giong} câu hạt giống** trong kho. "
+                "Khi GV bấm xây dựng, hệ thống mới đọc các hạt giống phù hợp với cấu hình hiện tại."
             )
         else:
             st.info(
@@ -12123,82 +12201,87 @@ def tao_de_giao_vien():
         "Nếu một ô ma trận thiếu câu, hệ thống báo thiếu thay vì lấy sai mục tiêu."
     )
 
-    ds_khoi_nhe = [
-        str(k).strip()
-        for k in (KHO_YCCD or {}).keys()
-        if str(k).strip()
-    ]
-    ds_khoi_nhe = sorted(
-        ds_khoi_nhe,
-        key=lambda x: int(re.search(r"(10|11|12)", x).group(1))
-        if re.search(r"(10|11|12)", x) else 999
-    )
-
-    khoi_da_chon = st.selectbox(
-        "Khối",
-        ds_khoi_nhe,
+    noi_dung_de = st.radio(
+        "Nội dung",
+        [
+            "① Theo ma trận / đặc tả GV",
+            "② Luyện đề tốt nghiệp THPT",
+            "③ Mẫu đề đã lưu"
+        ],
         index=None,
-        placeholder="Chọn khối",
-        key="exam_custom_grade"
+        horizontal=True,
+        key="exam_main_mode"
     )
 
-    if not khoi_da_chon:
+    if not noi_dung_de:
         return
 
-    # Chỉ sau khi GV chọn Khối mới gọi câu hỏi của đúng Khối đó.
-    try:
-        bank_main = _fast_get_questions_v2_by_scope(
-            khoi=khoi_da_chon,
-            expected_total=None,
+    if noi_dung_de == "① Theo ma trận / đặc tả GV":
+        ds_khoi_nhe = [
+            str(k).strip()
+            for k in (KHO_YCCD or {}).keys()
+            if str(k).strip()
+        ]
+        ds_khoi_nhe = sorted(
+            ds_khoi_nhe,
+            key=lambda x: int(re.search(r"(10|11|12)", x).group(1))
+            if re.search(r"(10|11|12)", x) else 999
         )
-        if not isinstance(bank_main, list):
+
+        khoi_da_chon = st.selectbox(
+            "Khối",
+            ds_khoi_nhe,
+            index=None,
+            placeholder="Chọn khối",
+            key="exam_custom_grade"
+        )
+
+        if not khoi_da_chon:
+            return
+
+        # Chỉ sau khi GV chọn Khối mới gọi câu hỏi của đúng Khối đó.
+        try:
+            bank_main = _fast_get_questions_v2_by_scope(
+                khoi=khoi_da_chon,
+                expected_total=None,
+            )
+            if not isinstance(bank_main, list):
+                bank_main = []
+        except Exception:
             bank_main = []
-    except Exception:
-        bank_main = []
 
-    if not bank_main:
-        bank_main = [
-            q for q in doc_ngan_hang()
+        if not bank_main:
+            bank_main = [
+                q for q in doc_ngan_hang()
+                if q.get("khoi") == khoi_da_chon
+                and q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
+            ]
+        else:
+            bank_main = [
+                q for q in bank_main
+                if q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
+            ]
+
+        bank_grad = [
+            q for q in doc_ngan_hang_tot_nghiep_thuc_te()
             if q.get("khoi") == khoi_da_chon
-            and q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
-        ]
-    else:
-        bank_main = [
-            q for q in bank_main
-            if q.get("trang_thai", "Đã duyệt") != "Ngừng sử dụng"
+            and cau_tot_nghiep_du_dieu_kien_su_dung(q)
         ]
 
-    bank_grad = [
-        q for q in doc_ngan_hang_tot_nghiep_thuc_te()
-        if q.get("khoi") == khoi_da_chon
-        and cau_tot_nghiep_du_dieu_kien_su_dung(q)
-    ]
+        bank = []
+        seen_ids = set()
+        for q in bank_main + bank_grad:
+            key = str(q.get("id", "") or fingerprint_cau_hoi(q))
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            bank.append(q)
 
-    bank = []
-    seen_ids = set()
-    for q in bank_main + bank_grad:
-        key = str(q.get("id", "") or fingerprint_cau_hoi(q))
-        if key in seen_ids:
-            continue
-        seen_ids.add(key)
-        bank.append(q)
-
-    if not bank:
-        st.info(
-            "Ngân hàng chưa có câu đã duyệt ở khối đã chọn để tạo đề."
-        )
-        return
-
-    tab1, tab2, tab3 = st.tabs([
-        "① Theo ma trận / đặc tả GV",
-        "② Luyện đề tốt nghiệp THPT",
-        "③ Mẫu đề đã lưu"
-    ])
-
-    # ======================================================
-    # TAB 1 - MA TRẬN GV
-    # ======================================================
-    with tab1:
+        if not bank:
+            st.info(
+                "Ngân hàng chưa có câu đã duyệt ở khối đã chọn để tạo đề."
+            )
+            return
         st.subheader(
             "🎯 Ma trận / bản đặc tả của giáo viên"
         )
@@ -12535,10 +12618,7 @@ def tao_de_giao_vien():
                 "Thêm ít nhất một dòng vào ma trận để bắt đầu."
             )
 
-    # ======================================================
-    # TAB 2 - TỐT NGHIỆP
-    # ======================================================
-    with tab2:
+    elif noi_dung_de == "② Luyện đề tốt nghiệp THPT":
         st.subheader("🎓 Luyện đề tốt nghiệp THPT từ đề thật")
         st.caption(
             "Form được khóa đúng **18 câu 4 lựa chọn + 4 câu Đúng/Sai + 6 câu Trả lời ngắn**, "
@@ -12619,10 +12699,7 @@ def tao_de_giao_vien():
                         st.success("Đã lưu mã đề.")
                 hien_thi_de_xem_truoc(de_grad)
 
-    # ======================================================
-    # TAB 3 - QUẢN LÝ MẪU / ĐỀ ĐÃ LƯU
-    # ======================================================
-    with tab3:
+    else:
         st.subheader("🗂️ Quản lý mẫu ma trận và đề đã lưu")
         st.caption(
             "GV có thể **xem – sửa – xóa** mẫu ma trận sau khi học sinh đã ôn/kiểm tra xong. "
@@ -12630,16 +12707,22 @@ def tao_de_giao_vien():
             "**lịch sử và điểm học sinh đã nộp vẫn được giữ nguyên**."
         )
 
-        ql_mau_tab, ql_de_tab, ql_kt_tab = st.tabs([
-            "📋 Mẫu ma trận",
-            "📝 Đề đã lưu",
-            "🧪 Đợt kiểm tra"
-        ])
+        che_do_quan_ly = st.radio(
+            "Quản lý",
+            [
+                "📋 Mẫu ma trận",
+                "📝 Đề đã lưu",
+                "🧪 Đợt kiểm tra"
+            ],
+            index=None,
+            horizontal=True,
+            key="exam_manage_mode"
+        )
 
-        # --------------------------------------------------
-        # QUẢN LÝ MẪU MA TRẬN
-        # --------------------------------------------------
-        with ql_mau_tab:
+        if not che_do_quan_ly:
+            return
+
+        if che_do_quan_ly == "📋 Mẫu ma trận":
             ds_mau = doc_json_list(EXAM_TEMPLATE_PATH)
 
             if not ds_mau:
@@ -12817,10 +12900,7 @@ def tao_de_giao_vien():
                             )
                             st.rerun()
 
-        # --------------------------------------------------
-        # QUẢN LÝ ĐỀ ĐÃ LƯU
-        # --------------------------------------------------
-        with ql_de_tab:
+        elif che_do_quan_ly == "📝 Đề đã lưu":
             ds_de = doc_json_list(EXAM_PATH)
 
             if not ds_de:
@@ -12926,11 +13006,7 @@ def tao_de_giao_vien():
                 with st.expander("📄 Xem nội dung đề", expanded=False):
                     hien_thi_de_xem_truoc(de_chon)
 
-
-        # --------------------------------------------------
-        # QUẢN LÝ ĐỢT KIỂM TRA THEO MA TRẬN
-        # --------------------------------------------------
-        with ql_kt_tab:
+        else:
             st.subheader("🧪 Giao đợt kiểm tra theo ma trận")
             st.caption(
                 "Mỗi **đợt kiểm tra** có mã riêng, lớp áp dụng, giờ mở, giờ kết thúc đợt, thời gian làm và quyền xem đáp án. "
@@ -14397,7 +14473,7 @@ def phan_tich_lop_hoc():
         "Không chọn nguồn dữ liệu và không gọi AI."
     )
 
-    ds_lop = lay_danh_sach_lop_tu_hoc_sinh()
+    ds_lop = _gv_lay_danh_sach_lop_nhe()
     if not ds_lop:
         st.info(
             "Chưa tìm thấy lớp. Nếu học sinh đã làm bài, hệ thống sẽ tự lấy lớp "
@@ -14590,40 +14666,6 @@ def phan_tich_lop_hoc():
         "Nguyên tắc: đề xuất dựa trên dữ liệu bài làm của chính lớp; "
         "YCCĐ/năng lực có ít lượt đánh giá sẽ chưa bị kết luận là yếu."
     )
-
-    # Vẫn giữ nhóm HS cần quan tâm nhưng đặt sau bức tranh lớp.
-    st.divider()
-    st.subheader("👥 Học sinh cần GV quan tâm")
-    rows_hs = []
-    for hs in hs_stats:
-        tong = int(hs.get("tong_don_vi", 0) or 0)
-        dung = int(hs.get("dung_don_vi", 0) or 0)
-        ti_le = dung / tong * 100 if tong else 0
-        diem = [float(x) for x in (hs.get("diem", []) or [])]
-        rows_hs.append({
-            "Mã HS": hs.get("ma", ""),
-            "Họ và tên": hs.get("ho_ten", ""),
-            "Lớp": hs.get("lop", ""),
-            "Số lượt": int(hs.get("so_luot", 0) or 0),
-            "Tỉ lệ đúng": round(ti_le, 1),
-            "Điểm TB": round(sum(diem) / len(diem), 1) if diem else 0,
-        })
-
-    can_ho_tro = [
-        x for x in rows_hs
-        if int(x.get("Số lượt", 0) or 0) >= 1
-        and float(x.get("Tỉ lệ đúng", 0) or 0) < 60
-    ]
-    can_ho_tro.sort(key=lambda x: (x["Tỉ lệ đúng"], x["Điểm TB"]))
-
-    if can_ho_tro:
-        st.dataframe(
-            pd.DataFrame(can_ho_tro),
-            use_container_width=True,
-            hide_index=True
-        )
-    else:
-        st.success("Chưa có học sinh nào dưới ngưỡng 60% trong dữ liệu hiện có.")
 
 
 
@@ -15810,16 +15852,14 @@ def du_lieu_va_tien_bo_hoc_sinh():
     )
 
     st.caption(
-        "Theo dõi sự tiến bộ từng học sinh và xuất báo cáo theo lớp. "
+        "Theo dõi sự tiến bộ từng học sinh và xuất báo cáo từng học sinh theo lớp. "
         "Toàn bộ phần này không dùng API."
     )
 
-    ds_lop = lay_danh_sach_lop_tu_hoc_sinh()
+    ds_lop = _gv_lay_danh_sach_lop_nhe()
 
     if not ds_lop:
-        st.info(
-            "Chưa có lớp/học sinh."
-        )
+        st.info("Chưa có lớp/học sinh.")
         return
 
     lop = st.selectbox(
@@ -15833,655 +15873,456 @@ def du_lieu_va_tien_bo_hoc_sinh():
     if not lop:
         return
 
-    rows = tong_hop_hoc_sinh_theo_lop(
-        lop
+    ds_hs_lop = _fast_get_students_class(
+        lop,
+        local_student_path=STUDENT_PATH
     )
 
-    if not rows:
-        st.info(
-            "Lớp này chưa có dữ liệu."
-        )
+    if not ds_hs_lop:
+        st.info("Lớp này chưa có dữ liệu học sinh.")
         return
 
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2 = st.tabs([
         "👤 Tiến bộ từng học sinh",
-        "👥 Tổng hợp cả lớp",
         "⬇️ Xuất dữ liệu"
     ])
 
-    # ------------------------------------------------------
-    # TAB 1
-    # ------------------------------------------------------
     with tab1:
         labels = [
-            f"{r['Mã học sinh']} – "
-            f"{r['Họ và tên']}"
-            for r in rows
+            f"{str(hs.get('ma_hoc_sinh', '')).strip().upper()} – "
+            f"{str(hs.get('ho_ten', '')).strip()}"
+            for hs in ds_hs_lop
         ]
 
         selected = st.selectbox(
             "Chọn học sinh",
             labels,
+            index=None,
+            placeholder="Chọn học sinh",
             key="gv_progress_student"
         )
 
-        idx = labels.index(
-            selected
-        )
-
-        hs_row = rows[
-            idx
-        ]
-
-        ma = hs_row[
-            "Mã học sinh"
-        ]
-
-        lich_su_hs = lay_lich_su_cua_hoc_sinh(
-            ma
-        )
-
-        tb = tinh_tien_bo_hoc_sinh(
-            lich_su_hs
-        )
-
-        c1, c2, c3, c4 = st.columns(
-            4
-        )
-
-        with c1:
-            st.metric(
-                "Số lượt",
-                tb[
-                    "so_luot"
-                ]
+        if selected:
+            idx = labels.index(selected)
+            ma = str(
+                ds_hs_lop[idx].get("ma_hoc_sinh", "")
+            ).strip().upper()
+            lich_su_hs = lay_lich_su_cua_hoc_sinh(
+                ma
             )
 
-        with c2:
-            st.metric(
-                "Điểm TB",
-                f"{tb['diem_tb']:.1f}"
-            )
-
-        with c3:
-            st.metric(
-                "Điểm gần đây",
-                f"{tb['diem_gan_day']:.1f}"
-            )
-
-        with c4:
-            st.metric(
-                "Mức thay đổi",
-                f"{tb['chenh_lech']:+.1f}"
-            )
-
-        if tb[
-            "xu_huong"
-        ] in [
-            "Tiến bộ rõ",
-            "Có tiến bộ"
-        ]:
-            st.success(
-                f"📈 **Xu hướng: {tb['xu_huong']}**"
-            )
-        elif tb[
-            "xu_huong"
-        ] in [
-            "Giảm rõ",
-            "Có dấu hiệu giảm"
-        ]:
-            st.warning(
-                f"📉 **Xu hướng: {tb['xu_huong']}**"
-            )
-        else:
-            st.info(
-                f"➡️ **Xu hướng: {tb['xu_huong']}**"
-            )
-
-        if lich_su_hs:
-            lich_su_sort = sap_xep_lich_su_hs(
+            tb = tinh_tien_bo_hoc_sinh(
                 lich_su_hs
             )
 
-            df_tien_bo = pd.DataFrame([
-                {
-                    "Lượt": i,
-                    "Thời gian": x.get(
-                        "thoi_gian",
-                        ""
-                    ),
-                    "Điểm": float(
-                        x.get(
-                            "diem",
-                            0
-                        )
-                        or 0
-                    ),
-                    "Tỉ lệ đúng": float(
-                        x.get(
-                            "ti_le_dung_don_vi",
-                            0
-                        )
-                        or 0
-                    )
-                }
-                for i, x in enumerate(
-                    lich_su_sort,
-                    start=1
-                )
-            ])
-
-            st.markdown(
-                "### 📈 Đường tiến bộ"
+            c1, c2, c3, c4 = st.columns(
+                4
             )
 
-            if not df_tien_bo.empty:
-                st.line_chart(
-                    df_tien_bo.set_index(
-                        "Lượt"
-                    )[
-                        [
-                            "Điểm"
-                        ]
+            with c1:
+                st.metric(
+                    "Số lượt",
+                    tb[
+                        "so_luot"
                     ]
                 )
 
-            st.dataframe(
-                df_tien_bo,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        profile = tao_ho_so_tu_lich_su(
-            ma
-        )
-
-        # ==================================================
-        # PHẦN DƯỚI: GỌN, TẬP TRUNG VÀO 3 THÀNH PHẦN NĂNG LỰC
-        # ==================================================
-        st.markdown("---")
-        st.markdown(
-            "## 🧠 NĂNG LỰC SINH HỌC"
-        )
-
-        st.caption(
-            "Tổng hợp theo 3 thành phần năng lực để GV nhanh chóng nhận ra "
-            "điểm mạnh, điểm cần hỗ trợ và điều chỉnh cách dạy/cách học."
-        )
-
-        # Tổng hợp trực tiếp từ hồ sơ động đã có.
-        stats_profile = list(
-            profile.get(
-                "stats",
-                {}
-            ).values()
-        )
-
-        tong_hop_nl = {}
-
-        for s in stats_profile:
-            nl = str(
-                s.get(
-                    "nang_luc",
-                    ""
+            with c2:
+                st.metric(
+                    "Điểm TB",
+                    f"{tb['diem_tb']:.1f}"
                 )
-            ).strip()
 
-            if not nl:
-                continue
-
-            item_nl = tong_hop_nl.setdefault(
-                nl,
-                {
-                    "so_lan": 0,
-                    "so_dung": 0
-                }
-            )
-
-            item_nl["so_lan"] += int(
-                s.get(
-                    "so_lan",
-                    0
+            with c3:
+                st.metric(
+                    "Điểm gần đây",
+                    f"{tb['diem_gan_day']:.1f}"
                 )
-                or 0
-            )
 
-            item_nl["so_dung"] += int(
-                s.get(
-                    "so_dung",
-                    0
+            with c4:
+                st.metric(
+                    "Mức thay đổi",
+                    f"{tb['chenh_lech']:+.1f}"
                 )
-                or 0
-            )
 
-        def _trang_thai_nang_luc(ti_le, so_lan):
-            if so_lan < 3:
-                return "Chưa đủ dữ liệu"
-
-            if ti_le >= 0.80:
-                return "Đạt tốt"
-
-            if ti_le >= 0.65:
-                return "Đạt"
-
-            if ti_le >= 0.50:
-                return "Đang củng cố"
-
-            return "Cần hỗ trợ"
-
-
-        nl_rows = []
-
-        for nl_name in THANH_PHAN_NANG_LUC:
-            s = tong_hop_nl.get(
-                nl_name,
-                {
-                    "so_lan": 0,
-                    "so_dung": 0
-                }
-            )
-
-            so_lan_nl = int(
-                s.get(
-                    "so_lan",
-                    0
-                )
-                or 0
-            )
-
-            so_dung_nl = int(
-                s.get(
-                    "so_dung",
-                    0
-                )
-                or 0
-            )
-
-            ti_le_nl = (
-                so_dung_nl / so_lan_nl
-                if so_lan_nl > 0
-                else 0
-            )
-
-            nl_rows.append({
-                "Năng lực": nl_name,
-                "Số lần đánh giá": so_lan_nl,
-                "Tỉ lệ đúng": ti_le_nl,
-                "Trạng thái": _trang_thai_nang_luc(
-                    ti_le_nl,
-                    so_lan_nl
-                )
-            })
-
-        # Hiển thị 3 thẻ ngang, không tạo bảng dài.
-        cols_nl = st.columns(
-            3
-        )
-
-        for i_nl, row_nl in enumerate(
-            nl_rows
-        ):
-            with cols_nl[
-                i_nl
+            if tb[
+                "xu_huong"
+            ] in [
+                "Tiến bộ rõ",
+                "Có tiến bộ"
             ]:
-                with st.container(
-                    border=True
-                ):
-                    st.markdown(
-                        f"### {row_nl['Năng lực']}"
-                    )
-
-                    st.metric(
-                        "Tỉ lệ đúng",
-                        f"{row_nl['Tỉ lệ đúng'] * 100:.0f}%"
-                    )
-
-                    st.caption(
-                        f"Số lần đánh giá: {row_nl['Số lần đánh giá']}"
-                    )
-
-                    trang_thai_nl = row_nl[
-                        "Trạng thái"
-                    ]
-
-                    if trang_thai_nl == "Đạt tốt":
-                        st.success(
-                            "⭐ Đạt tốt"
-                        )
-                    elif trang_thai_nl == "Đạt":
-                        st.success(
-                            "🟢 Đạt"
-                        )
-                    elif trang_thai_nl == "Đang củng cố":
-                        st.info(
-                            "🟡 Đang củng cố"
-                        )
-                    elif trang_thai_nl == "Cần hỗ trợ":
-                        st.warning(
-                            "🔴 Cần hỗ trợ"
-                        )
-                    else:
-                        st.info(
-                            "⚪ Chưa đủ dữ liệu"
-                        )
-
-        # ==================================================
-        # NỘI DUNG CẦN CHÚ Ý - CHỈ TOP 5
-        # ==================================================
-        st.markdown(
-            "## 🎯 NỘI DUNG GV CẦN CHÚ Ý"
-        )
-
-        weak = tom_tat_diem_yeu(
-            profile,
-            5
-        )
-
-        if weak:
-            for i_w, x in enumerate(
-                weak,
-                start=1
-            ):
-                with st.container(
-                    border=True
-                ):
-                    st.markdown(
-                        f"**{i_w}. {x.get('yccd', '')}**"
-                    )
-
-                    c_w1, c_w2, c_w3 = st.columns(
-                        3
-                    )
-
-                    with c_w1:
-                        st.caption(
-                            "Mức độ"
-                        )
-                        st.write(
-                            x.get(
-                                "muc_do",
-                                ""
-                            )
-                        )
-
-                    with c_w2:
-                        st.caption(
-                            "Năng lực"
-                        )
-                        st.write(
-                            x.get(
-                                "nang_luc",
-                                ""
-                            )
-                        )
-
-                    with c_w3:
-                        st.metric(
-                            "Tỉ lệ đúng",
-                            f"{x.get('ti_le_dung', 0) * 100:.0f}%"
-                        )
-        else:
-            st.success(
-                "Chưa phát hiện nội dung yếu nổi bật."
-            )
-
-        # ==================================================
-        # GỢI Ý HÀNH ĐỘNG CHO GV - KHÔNG DÙNG API
-        # ==================================================
-        st.markdown(
-            "## 🧭 GỢI Ý ĐIỀU CHỈNH DẠY – HỌC"
-        )
-
-        nl_can_ho_tro = [
-            r
-            for r in nl_rows
-            if r["Trạng thái"] in [
-                "Cần hỗ trợ",
-                "Đang củng cố"
-            ]
-        ]
-
-        if nl_can_ho_tro:
-            ten_nl = ", ".join(
-                r["Năng lực"]
-                for r in nl_can_ho_tro
-            )
-
-            st.warning(
-                f"Ưu tiên hỗ trợ các thành phần năng lực: **{ten_nl}**. "
-                "Nên tăng câu luyện đúng các YCCĐ liên quan, giữ mức độ phù hợp "
-                "và theo dõi lại sau vài lượt."
-            )
-        else:
-            st.success(
-                "Các thành phần năng lực hiện chưa có dấu hiệu yếu rõ. "
-                "Có thể tiếp tục duy trì và tăng dần độ khó ở nội dung phù hợp."
-            )
-
-        if weak:
-            st.info(
-                "Trong lượt luyện tiếp theo, app nên ưu tiên một phần câu ở "
-                "**3–5 YCCĐ yếu nhất**, nhưng vẫn xen kẽ nội dung đã làm tốt "
-                "để kiểm tra độ bền kiến thức."
-            )
-
-    # ------------------------------------------------------
-    # TAB 2
-    # ------------------------------------------------------
-    with tab2:
-        st.caption(
-            "Bảng dưới chỉ giữ các cột ngắn để dễ nhìn. "
-            "Nội dung YCCĐ cần ưu tiên được hiển thị đầy đủ ở các thẻ bên dưới."
-        )
-
-        cot_ngan = [
-            "Mã học sinh",
-            "Họ và tên",
-            "Lớp",
-            "Số lượt",
-            "Điểm TB",
-            "Tỉ lệ đúng TB (%)",
-            "Xu hướng",
-            "Đơn vị đang tiến bộ",
-            "Đơn vị đạt",
-            "Đơn vị thành thạo",
-            "Đơn vị cần củng cố"
-        ]
-
-        df_lop_ngan = pd.DataFrame(
-            rows
-        )
-
-        cot_co = [
-            c
-            for c in cot_ngan
-            if c in df_lop_ngan.columns
-        ]
-
-        st.dataframe(
-            df_lop_ngan[
-                cot_co
-            ],
-            use_container_width=True,
-            hide_index=True,
-            height=420
-        )
-
-        st.markdown(
-            "### 👤 Xem đầy đủ từng học sinh"
-        )
-
-        for r_hs in rows:
-            with st.expander(
-                f"{r_hs.get('Mã học sinh', '')} – "
-                f"{r_hs.get('Họ và tên', '')} – "
-                f"{r_hs.get('Xu hướng', '')}",
-                expanded=False
-            ):
-                s1, s2, s3, s4 = st.columns(
-                    4
+                st.success(
+                    f"📈 **Xu hướng: {tb['xu_huong']}**"
+                )
+            elif tb[
+                "xu_huong"
+            ] in [
+                "Giảm rõ",
+                "Có dấu hiệu giảm"
+            ]:
+                st.warning(
+                    f"📉 **Xu hướng: {tb['xu_huong']}**"
+                )
+            else:
+                st.info(
+                    f"➡️ **Xu hướng: {tb['xu_huong']}**"
                 )
 
-                with s1:
-                    st.metric(
-                        "Số lượt",
-                        r_hs.get(
-                            "Số lượt",
-                            0
-                        )
-                    )
+            if lich_su_hs:
+                lich_su_sort = sap_xep_lich_su_hs(
+                    lich_su_hs
+                )
 
-                with s2:
-                    st.metric(
-                        "Điểm TB",
-                        r_hs.get(
-                            "Điểm TB",
-                            0
+                df_tien_bo = pd.DataFrame([
+                    {
+                        "Lượt": i,
+                        "Thời gian": x.get(
+                            "thoi_gian",
+                            ""
+                        ),
+                        "Điểm": float(
+                            x.get(
+                                "diem",
+                                0
+                            )
+                            or 0
+                        ),
+                        "Tỉ lệ đúng": float(
+                            x.get(
+                                "ti_le_dung_don_vi",
+                                0
+                            )
+                            or 0
                         )
+                    }
+                    for i, x in enumerate(
+                        lich_su_sort,
+                        start=1
                     )
-
-                with s3:
-                    st.metric(
-                        "Đang tiến bộ",
-                        r_hs.get(
-                            "Đơn vị đang tiến bộ",
-                            0
-                        )
-                    )
-
-                with s4:
-                    st.metric(
-                        "Cần củng cố",
-                        r_hs.get(
-                            "Đơn vị cần củng cố",
-                            0
-                        )
-                    )
+                ])
 
                 st.markdown(
-                    "**Nội dung cần ưu tiên:**"
+                    "### 📈 Đường tiến bộ"
                 )
 
-                noi_dung_day_du = str(
-                    r_hs.get(
-                        "Nội dung cần ưu tiên",
+                if not df_tien_bo.empty:
+                    st.line_chart(
+                        df_tien_bo.set_index(
+                            "Lượt"
+                        )[
+                            [
+                                "Điểm"
+                            ]
+                        ]
+                    )
+
+                st.dataframe(
+                    df_tien_bo,
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            profile = tao_ho_so_tu_lich_su(
+                ma
+            )
+
+            # ==================================================
+            # PHẦN DƯỚI: GỌN, TẬP TRUNG VÀO 3 THÀNH PHẦN NĂNG LỰC
+            # ==================================================
+            st.markdown("---")
+            st.markdown(
+                "## 🧠 NĂNG LỰC SINH HỌC"
+            )
+
+            st.caption(
+                "Tổng hợp theo 3 thành phần năng lực để GV nhanh chóng nhận ra "
+                "điểm mạnh, điểm cần hỗ trợ và điều chỉnh cách dạy/cách học."
+            )
+
+            # Tổng hợp trực tiếp từ hồ sơ động đã có.
+            stats_profile = list(
+                profile.get(
+                    "stats",
+                    {}
+                ).values()
+            )
+
+            tong_hop_nl = {}
+
+            for s in stats_profile:
+                nl = str(
+                    s.get(
+                        "nang_luc",
                         ""
                     )
                 ).strip()
 
-                if noi_dung_day_du:
-                    for nd_uu_tien in noi_dung_day_du.split(
-                        " | "
-                    ):
-                        with st.container(
-                            border=True
-                        ):
-                            st.write(
-                                nd_uu_tien
-                            )
-                else:
-                    st.write(
-                        "Chưa có nội dung cần ưu tiên."
-                    )
+                if not nl:
+                    continue
 
-        tien_bo = sum(
-            1
-            for r in rows
-            if r[
-                "Xu hướng"
-            ] in [
-                "Tiến bộ rõ",
-                "Có tiến bộ"
-            ]
-        )
-
-        can_ho_tro = sum(
-            1
-            for r in rows
-            if r[
-                "Xu hướng"
-            ] in [
-                "Giảm rõ",
-                "Có dấu hiệu giảm"
-            ]
-        )
-
-        d1, d2, d3 = st.columns(
-            3
-        )
-
-        with d1:
-            st.metric(
-                "Sĩ số",
-                len(
-                    rows
+                item_nl = tong_hop_nl.setdefault(
+                    nl,
+                    {
+                        "so_lan": 0,
+                        "so_dung": 0
+                    }
                 )
+
+                item_nl["so_lan"] += int(
+                    s.get(
+                        "so_lan",
+                        0
+                    )
+                    or 0
+                )
+
+                item_nl["so_dung"] += int(
+                    s.get(
+                        "so_dung",
+                        0
+                    )
+                    or 0
+                )
+
+            def _trang_thai_nang_luc(ti_le, so_lan):
+                if so_lan < 3:
+                    return "Chưa đủ dữ liệu"
+
+                if ti_le >= 0.80:
+                    return "Đạt tốt"
+
+                if ti_le >= 0.65:
+                    return "Đạt"
+
+                if ti_le >= 0.50:
+                    return "Đang củng cố"
+
+                return "Cần hỗ trợ"
+
+
+            nl_rows = []
+
+            for nl_name in THANH_PHAN_NANG_LUC:
+                s = tong_hop_nl.get(
+                    nl_name,
+                    {
+                        "so_lan": 0,
+                        "so_dung": 0
+                    }
+                )
+
+                so_lan_nl = int(
+                    s.get(
+                        "so_lan",
+                        0
+                    )
+                    or 0
+                )
+
+                so_dung_nl = int(
+                    s.get(
+                        "so_dung",
+                        0
+                    )
+                    or 0
+                )
+
+                ti_le_nl = (
+                    so_dung_nl / so_lan_nl
+                    if so_lan_nl > 0
+                    else 0
+                )
+
+                nl_rows.append({
+                    "Năng lực": nl_name,
+                    "Số lần đánh giá": so_lan_nl,
+                    "Tỉ lệ đúng": ti_le_nl,
+                    "Trạng thái": _trang_thai_nang_luc(
+                        ti_le_nl,
+                        so_lan_nl
+                    )
+                })
+
+            # Hiển thị 3 thẻ ngang, không tạo bảng dài.
+            cols_nl = st.columns(
+                3
             )
 
-        with d2:
-            st.metric(
-                "Đang tiến bộ",
-                tien_bo
+            for i_nl, row_nl in enumerate(
+                nl_rows
+            ):
+                with cols_nl[
+                    i_nl
+                ]:
+                    with st.container(
+                        border=True
+                    ):
+                        st.markdown(
+                            f"### {row_nl['Năng lực']}"
+                        )
+
+                        st.metric(
+                            "Tỉ lệ đúng",
+                            f"{row_nl['Tỉ lệ đúng'] * 100:.0f}%"
+                        )
+
+                        st.caption(
+                            f"Số lần đánh giá: {row_nl['Số lần đánh giá']}"
+                        )
+
+                        trang_thai_nl = row_nl[
+                            "Trạng thái"
+                        ]
+
+                        if trang_thai_nl == "Đạt tốt":
+                            st.success(
+                                "⭐ Đạt tốt"
+                            )
+                        elif trang_thai_nl == "Đạt":
+                            st.success(
+                                "🟢 Đạt"
+                            )
+                        elif trang_thai_nl == "Đang củng cố":
+                            st.info(
+                                "🟡 Đang củng cố"
+                            )
+                        elif trang_thai_nl == "Cần hỗ trợ":
+                            st.warning(
+                                "🔴 Cần hỗ trợ"
+                            )
+                        else:
+                            st.info(
+                                "⚪ Chưa đủ dữ liệu"
+                            )
+
+            # ==================================================
+            # NỘI DUNG CẦN CHÚ Ý - CHỈ TOP 5
+            # ==================================================
+            st.markdown(
+                "## 🎯 NỘI DUNG GV CẦN CHÚ Ý"
             )
 
-        with d3:
-            st.metric(
-                "Cần chú ý",
-                can_ho_tro
+            weak = tom_tat_diem_yeu(
+                profile,
+                5
             )
 
-    # ------------------------------------------------------
-    # TAB 3
-    # ------------------------------------------------------
-    with tab3:
+            if weak:
+                for i_w, x in enumerate(
+                    weak,
+                    start=1
+                ):
+                    with st.container(
+                        border=True
+                    ):
+                        st.markdown(
+                            f"**{i_w}. {x.get('yccd', '')}**"
+                        )
+
+                        c_w1, c_w2, c_w3 = st.columns(
+                            3
+                        )
+
+                        with c_w1:
+                            st.caption(
+                                "Mức độ"
+                            )
+                            st.write(
+                                x.get(
+                                    "muc_do",
+                                    ""
+                                )
+                            )
+
+                        with c_w2:
+                            st.caption(
+                                "Năng lực"
+                            )
+                            st.write(
+                                x.get(
+                                    "nang_luc",
+                                    ""
+                                )
+                            )
+
+                        with c_w3:
+                            st.metric(
+                                "Tỉ lệ đúng",
+                                f"{x.get('ti_le_dung', 0) * 100:.0f}%"
+                            )
+            else:
+                st.success(
+                    "Chưa phát hiện nội dung yếu nổi bật."
+                )
+
+            # ==================================================
+            # GỢI Ý HÀNH ĐỘNG CHO GV - KHÔNG DÙNG API
+            # ==================================================
+            st.markdown(
+                "## 🧭 GỢI Ý ĐIỀU CHỈNH DẠY – HỌC"
+            )
+
+            nl_can_ho_tro = [
+                r
+                for r in nl_rows
+                if r["Trạng thái"] in [
+                    "Cần hỗ trợ",
+                    "Đang củng cố"
+                ]
+            ]
+
+            if nl_can_ho_tro:
+                ten_nl = ", ".join(
+                    r["Năng lực"]
+                    for r in nl_can_ho_tro
+                )
+
+                st.warning(
+                    f"Ưu tiên hỗ trợ các thành phần năng lực: **{ten_nl}**. "
+                    "Nên tăng câu luyện đúng các YCCĐ liên quan, giữ mức độ phù hợp "
+                    "và theo dõi lại sau vài lượt."
+                )
+            else:
+                st.success(
+                    "Các thành phần năng lực hiện chưa có dấu hiệu yếu rõ. "
+                    "Có thể tiếp tục duy trì và tăng dần độ khó ở nội dung phù hợp."
+                )
+
+            if weak:
+                st.info(
+                    "Trong lượt luyện tiếp theo, app nên ưu tiên một phần câu ở "
+                    "**3–5 YCCĐ yếu nhất**, nhưng vẫn xen kẽ nội dung đã làm tốt "
+                    "để kiểm tra độ bền kiến thức."
+                )
+
+    with tab2:
         st.markdown("### ⬇️ Xuất báo cáo")
-        st.caption(
-            "Chỉ tạo file khi GV thực sự cần tải để trang Dữ liệu & tiến bộ mở nhanh."
-        )
+        export_key = f"_gv_progress_student_export_{chuan_hoa_ten_lop(lop)}"
+        file_hs = st.session_state.get(export_key)
 
-        export_key = f"_gv_progress_exports_{chuan_hoa_ten_lop(lop)}"
-        exports = st.session_state.get(export_key)
-
-        if not isinstance(exports, dict):
+        if not isinstance(file_hs, (bytes, bytearray)):
             if st.button(
-                "⚙️ CHUẨN BỊ 2 FILE EXCEL",
+                "⚙️ CHUẨN BỊ FILE TỔNG HỢP TỪNG HỌC SINH",
                 type="primary",
                 use_container_width=True,
-                key=f"gv_prepare_progress_exports_{chuan_hoa_ten_lop(lop)}"
+                key=f"gv_prepare_student_progress_{chuan_hoa_ten_lop(lop)}"
             ):
                 with st.spinner("Đang tạo báo cáo Excel..."):
-                    exports = {
-                        "file_hs": tao_excel_tong_hop_hoc_sinh_lop(lop),
-                        "file_lop": tao_excel_tong_hop_chung_lop(lop),
-                    }
-                    st.session_state[export_key] = exports
+                    st.session_state[export_key] = tao_excel_tong_hop_hoc_sinh_lop(lop)
                 st.rerun()
         else:
-            f1, f2 = st.columns(2)
-
-            with f1:
-                st.download_button(
-                    "⬇️ TẢI TỔNG HỢP TỪNG HỌC SINH",
-                    data=exports.get("file_hs", b""),
-                    file_name=f"tong_hop_tung_hoc_sinh_{chuan_hoa_ten_lop(lop)}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="gv_download_student_progress"
-                )
-
-            with f2:
-                st.download_button(
-                    "⬇️ TẢI TỔNG HỢP CHUNG CỦA LỚP",
-                    data=exports.get("file_lop", b""),
-                    file_name=f"tong_hop_chung_lop_{chuan_hoa_ten_lop(lop)}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    key="gv_download_class_summary"
-                )
+            st.download_button(
+                "⬇️ TẢI TỔNG HỢP TỪNG HỌC SINH",
+                data=file_hs,
+                file_name=f"tong_hop_tung_hoc_sinh_{chuan_hoa_ten_lop(lop)}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="gv_download_student_progress"
+            )
 
             if st.button(
                 "🔄 Tạo lại file theo dữ liệu mới nhất",
-                key=f"gv_refresh_progress_exports_{chuan_hoa_ten_lop(lop)}"
+                key=f"gv_refresh_student_progress_{chuan_hoa_ten_lop(lop)}"
             ):
                 st.session_state.pop(export_key, None)
                 st.rerun()
@@ -22835,592 +22676,602 @@ def xay_dung_ngan_hang_tot_nghiep():
         "Các câu trùng nội dung chỉ lưu một lần."
     )
 
-    # ------------------------------------------------------
-    # MẪU FILE
-    # ------------------------------------------------------
-    ctpl1, ctpl2 = st.columns([2, 3])
-    with ctpl1:
-        st.download_button(
-            "⬇️ TẢI FILE WORD MẪU",
-            data=tao_file_mau_ngan_hang_tot_nghiep(),
-            file_name="Mau_nhap_ngan_hang_tot_nghiep_Sinh_hoc.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            use_container_width=True,
-            key="grad_real_download_template",
-        )
-    with ctpl2:
-        st.caption(
-            "Có thể nhập trực tiếp đề Word hiện có. Chỉ cần có đáp án; hướng dẫn giải không bắt buộc. "
-            "Đáp án 4 lựa chọn có thể nằm trong bảng/dòng đáp án hoặc được đánh dấu DUY NHẤT bằng "
-            "**tô nền/highlight, màu chữ (kể cả đỏ), gạch chân, in đậm**. "
-            "Nếu file Word phức tạp hoặc muốn app đọc chắc chắn nhất, dùng file mẫu. "
-            "Dòng [[HƯỚNG DẪN GIẢI]] có thể bỏ nếu đề nguồn chưa có lời giải."
-        )
-
-    st.divider()
-    st.subheader("① Nhập đề vào ngân hàng")
-    files = st.file_uploader(
-        "Chọn một hoặc nhiều đề Word",
-        type=["docx"],
-        accept_multiple_files=True,
-        key="grad_real_upload",
-        help="Word cho phép app giữ ảnh/bảng gắn với từng câu chính xác hơn PDF.",
+    noi_dung_grad = st.radio(
+        "Nội dung",
+        [
+            "① Nhập đề vào ngân hàng",
+            "② Kiểm tra & duyệt ngân hàng"
+        ],
+        index=None,
+        horizontal=True,
+        key="grad_bank_mode"
     )
 
-    if files:
-        st.caption(f"Đã chọn **{len(files)} file**. Chưa nhập vào ngân hàng cho đến khi bấm nút bên dưới.")
-
-    if st.button(
-        "📥 TÁCH & NHẬP ĐỀ VÀO NGÂN HÀNG TỐT NGHIỆP",
-        type="primary",
-        use_container_width=True,
-        disabled=not bool(files),
-        key="grad_real_import",
-    ):
-        bank = doc_ngan_hang_tot_nghiep_thuc_te()
-        by_fp = {fingerprint_cau_tot_nghiep_thuc_te(q): i for i, q in enumerate(bank)}
-        total_new = 0
-        total_dup = 0
-        reports = []
-
-        for uploaded in files or []:
-            try:
-                source_name = os.path.basename(uploaded.name)
-                safe_name = re.sub(r"[^0-9A-Za-zÀ-ỹ_.() -]+", "_", source_name)
-                save_path = os.path.join(GRAD_SOURCE_DIR, safe_name)
-                with open(save_path, "wb") as f:
-                    f.write(uploaded.getbuffer())
-
-                qs = tach_de_tot_nghiep_docx(save_path, source_name)
-                counts = {
-                    "Trắc nghiệm 4 lựa chọn": 0,
-                    "Đúng / Sai": 0,
-                    "Trả lời ngắn": 0,
-                }
-                new_here = 0
-                dup_here = 0
-
-                for q in qs:
-                    counts[q.get("dang_cau", "")] = counts.get(q.get("dang_cau", ""), 0) + 1
-                    fp = fingerprint_cau_tot_nghiep_thuc_te(q)
-                    if fp in by_fp:
-                        idx = by_fp[fp]
-                        item = dict(bank[idx])
-                        sources = list(item.get("nguon_files", []) or [])
-                        primary = str(item.get("nguon_file", "")).strip()
-                        if primary and primary not in sources:
-                            sources.append(primary)
-                        if source_name not in sources:
-                            sources.append(source_name)
-                        item["nguon_files"] = sources
-
-                        # Nếu câu đã có từ lần nhập trước nhưng khi đó app chưa đọc được
-                        # đáp án/định dạng, lần nhập lại sẽ nâng cấp dữ liệu thay vì bỏ qua.
-                        if (not _grad_co_dap_an_day_du(item)) and _grad_co_dap_an_day_du(q):
-                            if q.get("dang_cau") == "Đúng / Sai":
-                                item["nhan_dinh_meta"] = q.get("nhan_dinh_meta", [])
-                            else:
-                                item["dap_an"] = q.get("dap_an", "")
-                            item["trang_thai"] = "Chờ rà soát"
-                            item["duoc_dung_luyen_hs"] = True
-                            item["san_sang_tu_dap_an_nguon"] = True
-                            item["canh_bao_dap_an"] = ""
-                            if q.get("dap_an_doc_tu_dinh_dang"):
-                                item["dap_an_doc_tu_dinh_dang"] = True
-
-                        # Bổ sung lời giải/tài nguyên nếu bản cũ còn thiếu.
-                        if not str(item.get("giai_thich", "") or "").strip() and str(q.get("giai_thich", "") or "").strip():
-                            item["giai_thich"] = q.get("giai_thich", "")
-                            item["nguon_giai_thich"] = q.get("nguon_giai_thich", "")
-                        if not (item.get("tai_nguyen_truc_quan") or []) and (q.get("tai_nguyen_truc_quan") or []):
-                            item["tai_nguyen_truc_quan"] = q.get("tai_nguyen_truc_quan", [])
-                            item["du_lieu_truc_quan"] = q.get("du_lieu_truc_quan", {})
-
-                        # Luôn cập nhật phân loại ôn tập thô theo cơ chế mới.
-                        item = gan_phan_loai_on_tap_cho_cau_tot_nghiep(item, force=False)
-                        bank[idx] = item
-                        dup_here += 1
-                        continue
-
-                    q["nguon_files"] = [source_name]
-                    by_fp[fp] = len(bank)
-                    bank.append(q)
-                    new_here += 1
-
-                total_new += new_here
-                total_dup += dup_here
-                reports.append({
-                    "File": source_name,
-                    "Tách được": len(qs),
-                    "4 lựa chọn": counts.get("Trắc nghiệm 4 lựa chọn", 0),
-                    "Đúng/Sai": counts.get("Đúng / Sai", 0),
-                    "Trả lời ngắn": counts.get("Trả lời ngắn", 0),
-                    "Câu mới": new_here,
-                    "Trùng": dup_here,
-                })
-            except Exception as e:
-                reports.append({
-                    "File": getattr(uploaded, "name", ""),
-                    "Tách được": 0,
-                    "4 lựa chọn": 0,
-                    "Đúng/Sai": 0,
-                    "Trả lời ngắn": 0,
-                    "Câu mới": 0,
-                    "Trùng": 0,
-                    "Lỗi": str(e),
-                })
-
-        luu_ngan_hang_tot_nghiep_thuc_te(bank)
-        st.success(f"Đã thêm **{total_new} câu mới**; bỏ qua **{total_dup} câu trùng**.")
-        st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
-        for r in reports:
-            if r.get("Tách được") and (
-                r.get("4 lựa chọn") != 18 or r.get("Đúng/Sai") != 4 or r.get("Trả lời ngắn") != 6
-            ):
-                st.warning(
-                    f"File **{r.get('File')}** chưa được đọc đúng form 18/4/6. "
-                    "Hãy xem lại file hoặc dùng file mẫu để nhập ổn định hơn."
-                )
-
-    # ------------------------------------------------------
-    # TỔNG QUAN BANK
-    # ------------------------------------------------------
-    bank = doc_ngan_hang_tot_nghiep_thuc_te()
-    st.divider()
-    st.subheader("② Kiểm tra & duyệt ngân hàng")
-
-    if not bank:
-        st.info("Chưa có câu nào trong ngân hàng tốt nghiệp từ đề thật.")
+    if not noi_dung_grad:
         return
 
-    count_mcq = sum(q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" for q in bank)
-    count_tf = sum(q.get("dang_cau") == "Đúng / Sai" for q in bank)
-    count_short = sum(q.get("dang_cau") == "Trả lời ngắn" for q in bank)
-    count_warn = sum(q.get("trang_thai") in {"Thiếu đáp án", "Cần GV xem"} for q in bank)
-
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Tổng câu", len(bank))
-    m2.metric("4 lựa chọn", count_mcq)
-    m3.metric("Đúng/Sai", count_tf)
-    m4.metric("Trả lời ngắn", count_short)
-    m5.metric("Cần GV xem", count_warn)
-
-    with st.expander("🔎 Mở quản lý, bộ lọc và chi tiết ngân hàng tốt nghiệp", expanded=False):
-        all_sources = sorted({
-            src
-            for q in bank
-            for src in (q.get("nguon_files", []) or [q.get("nguon_file", "")])
-            if str(src or "").strip()
-        })
-    
-        # Kho quản trị rõ ràng: xem → chọn → sửa → xóa từng câu đã nhập.
-        hien_thi_kho_cau_tot_nghiep_da_nhap(bank)
-    
-        st.markdown("### 🧭 Phân loại nhanh cho Ngân hàng tốt nghiệp")
-        st.info(
-            "Để GV thao tác nhẹ, ngân hàng tốt nghiệp chỉ cần **Khối – Chương – Mức độ – Thành phần năng lực**. "
-            "Không bắt buộc gán Bài, YCCĐ hay chỉ báo. Có thể sửa trực tiếp 4 trường này trong **Kho câu đã nhập**."
-        )
-
-        st.markdown("### 🔎 Rà soát / kiểm tra nhanh")
-        st.caption(
-            "Bộ lọc dưới đây dùng cho khâu rà soát. Mục **Cần GV xem** bao gồm cả "
-            "câu AI cảnh báo và câu **Thiếu đáp án**, nên số hiển thị luôn khớp với ô tổng quan phía trên."
-        )
-    
-        # ------------------------------------------------------
-        # XÓA FILE NGUỒN ĐÃ NHẬP
-        # ------------------------------------------------------
-        if all_sources:
-            with st.expander("🗑️ Xóa file nguồn đã nhập", expanded=False):
-                st.caption(
-                    "Xóa dữ liệu theo đúng file nguồn. Câu chỉ thuộc file đó sẽ bị xóa; "
-                    "câu trùng còn có nguồn khác sẽ được giữ lại."
-                )
-                src_del = st.selectbox(
-                    "Chọn file nguồn cần xóa",
-                    all_sources,
-                    key="grad_delete_source_select",
-                )
-                confirm_del = st.checkbox(
-                    "Tôi xác nhận muốn xóa dữ liệu của file nguồn này",
-                    key="grad_delete_source_confirm",
-                )
-                if st.button(
-                    "🗑️ XÓA FILE NGUỒN & DỮ LIỆU LIÊN QUAN",
-                    use_container_width=True,
-                    disabled=not confirm_del,
-                    key="grad_delete_source_button",
-                ):
-                    bank_new = []
-                    removed_questions = 0
-                    kept_shared = 0
-                    for item in bank:
-                        item2 = dict(item)
-                        sources = list(item2.get("nguon_files", []) or [])
-                        primary = str(item2.get("nguon_file", "") or "").strip()
-                        if primary and primary not in sources:
-                            sources.append(primary)
-    
-                        if src_del not in sources:
-                            bank_new.append(item2)
-                            continue
-    
-                        remain = [x for x in sources if x != src_del]
-                        if remain:
-                            item2["nguon_files"] = remain
-                            if primary == src_del or not primary:
-                                item2["nguon_file"] = remain[0]
-                                if item2.get("nguon_tao") == "Đề thật / đề thi thử GV tải lên":
-                                    item2["nguon"] = remain[0]
-                            bank_new.append(item2)
-                            kept_shared += 1
-                        else:
-                            removed_questions += 1
-    
-                    luu_ngan_hang_tot_nghiep_thuc_te(bank_new)
-    
-                    # Xóa bản Word nguồn đã lưu. Ảnh/bảng chỉ xóa khi chắc chắn không còn câu dùng;
-                    # ở đây giữ media để tránh làm mất hình của câu trùng còn nguồn khác.
-                    safe_name = re.sub(r"[^0-9A-Za-zÀ-ỹ_.() -]+", "_", src_del)
-                    source_path = os.path.join(GRAD_SOURCE_DIR, safe_name)
-                    try:
-                        if os.path.exists(source_path):
-                            os.remove(source_path)
-                    except Exception:
-                        pass
-    
-                    st.success(
-                        f"Đã xóa file nguồn **{src_del}**: xóa {removed_questions} câu riêng; "
-                        f"giữ {kept_shared} câu còn nguồn khác."
-                    )
-                    st.rerun()
-    
-        f1, f2, f3 = st.columns(3)
-        with f1:
-            source_filter = st.selectbox("Lọc theo file nguồn", ["Tất cả"] + all_sources, key="grad_real_filter_source")
-        with f2:
-            type_filter = st.selectbox(
-                "Lọc theo dạng",
-                ["Tất cả", "Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"],
-                key="grad_real_filter_type",
+    if noi_dung_grad == "① Nhập đề vào ngân hàng":
+        ctpl1, ctpl2 = st.columns([2, 3])
+        with ctpl1:
+            st.download_button(
+                "⬇️ TẢI FILE WORD MẪU",
+                data=tao_file_mau_ngan_hang_tot_nghiep(),
+                file_name="Mau_nhap_ngan_hang_tot_nghiep_Sinh_hoc.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+                key="grad_real_download_template",
             )
-        with f3:
-            status_filter = st.selectbox(
-                "Lọc theo trạng thái",
-                ["Tất cả", "Chờ rà soát", "Đã rà soát", "GV đã duyệt", "Cần GV xem", "Thiếu đáp án"],
-                key="grad_real_filter_status",
-            )
-    
-        filtered = []
-        for q in bank:
-            sources = q.get("nguon_files", []) or [q.get("nguon_file", "")]
-            if source_filter != "Tất cả" and source_filter not in sources:
-                continue
-            if type_filter != "Tất cả" and q.get("dang_cau") != type_filter:
-                continue
-            if not _grad_status_group_match(q, status_filter):
-                continue
-            filtered.append(q)
-    
-        st.caption(f"Đang hiển thị **{len(filtered)}/{len(bank)} câu**.")
-    
-        # AI rà soát theo lô nhỏ, không tự chạy khi nhập để tiết kiệm quota.
-        b1, b2 = st.columns([1, 2])
-        with b1:
-            review_n = st.number_input(
-                "Số câu rà soát/lượt",
-                min_value=1,
-                max_value=10,
-                value=3,
-                step=1,
-                key="grad_real_review_n",
-            )
-        with b2:
+        with ctpl2:
             st.caption(
-                "AI chỉ **kiểm tra đáp án, xác nhận mức độ và thành phần năng lực**, không sáng tác/sửa câu. "
-                "Câu đã có đáp án nguồn vẫn dùng được trước khi rà soát; nếu AI không chắc hoặc không khớp, "
-                "app mới khóa câu và đưa sang Cần GV xem."
+                "Có thể nhập trực tiếp đề Word hiện có. Chỉ cần có đáp án; hướng dẫn giải không bắt buộc. "
+                "Đáp án 4 lựa chọn có thể nằm trong bảng/dòng đáp án hoặc được đánh dấu DUY NHẤT bằng "
+                "**tô nền/highlight, màu chữ (kể cả đỏ), gạch chân, in đậm**. "
+                "Nếu file Word phức tạp hoặc muốn app đọc chắc chắn nhất, dùng file mẫu. "
+                "Dòng [[HƯỚNG DẪN GIẢI]] có thể bỏ nếu đề nguồn chưa có lời giải."
             )
-    
-        if st.button(
-            "🔎 AI RÀ SOÁT CÁC CÂU CHƯA KIỂM TRA",
-            use_container_width=True,
-            key="grad_real_review_batch",
-        ):
-            targets = [
-                q for q in bank
-                if q.get("trang_thai") == "Chờ rà soát"
-                and not q.get("ai_ra_soat")
-            ][: int(review_n)]
-            if not targets:
-                st.info("Không còn câu ở trạng thái Chờ rà soát.")
-            else:
-                progress = st.progress(0)
-                status_box = st.empty()
-                updated = list(bank)
-                by_id = {q.get("id"): i for i, q in enumerate(updated)}
-                done = 0
-                for k, q in enumerate(targets, start=1):
-                    status_box.write(f"Đang rà soát {k}/{len(targets)} • {q.get('nguon_file','')} • Câu {q.get('so_cau_goc','')}")
-                    try:
-                        q2 = ra_soat_cau_tot_nghiep_bang_ai(q)
-                        idx = by_id.get(q.get("id"))
-                        if idx is not None:
-                            updated[idx] = q2
-                        done += 1
-                    except Exception as e:
-                        st.warning(f"Dừng rà soát tại câu {q.get('so_cau_goc','')}: {e}")
-                        break
-                    progress.progress(k / max(len(targets), 1))
-                luu_ngan_hang_tot_nghiep_thuc_te(updated)
-                status_box.success(f"Đã rà soát {done} câu. Câu chưa chắc được giữ lại để GV xem.")
-                st.rerun()
-    
-        if not filtered:
-            st.info("Không có câu phù hợp bộ lọc.")
-            return
-    
-        labels = [
-            f"{q.get('nguon_file','')} • Phần {q.get('phan_goc','')} • Câu {q.get('so_cau_goc','')} • {q.get('dang_cau','')} • {q.get('trang_thai','')}"
-            for q in filtered
-        ]
-        selected_label = st.selectbox("Chọn câu để xem / sửa", labels, key="grad_real_select_question")
-        q = filtered[labels.index(selected_label)]
-    
-        with st.container(border=True):
-            st.write(f"**Nguồn:** {q.get('nguon_file','')} • **Phần {q.get('phan_goc','')} – Câu {q.get('so_cau_goc','')}**")
-            if q.get("trang_thai") == "Cần GV xem":
-                st.error("⚠️ AI chưa chắc đáp án này: " + str(q.get("canh_bao_dap_an", "")))
-            elif q.get("trang_thai") == "Thiếu đáp án":
-                st.warning("⚠️ File nguồn chưa đọc được đáp án. GV cần bổ sung trước khi dùng.")
-            elif q.get("trang_thai") == "Đã rà soát":
-                st.success(f"✅ AI đã rà soát • độ tin cậy {float(q.get('do_tin_cay_dap_an',0) or 0)*100:.0f}%")
-            elif q.get("trang_thai") == "Chờ rà soát" and cau_tot_nghiep_du_dieu_kien_su_dung(q):
-                st.info(
-                    "✅ Câu đã có đáp án nguồn đầy đủ nên **được dùng ngay** để tạo đề và ôn tập. "
-                    "AI rà soát là bước kiểm tra bổ sung; nếu phát hiện nghi vấn, app sẽ tự khóa câu để GV xem."
-                )
-    
-            st.caption(
-                "📚 Phân loại tốt nghiệp: "
-                + (str(q.get("khoi", "")) or "Chưa xác định khối")
-                + (" → " + str(q.get("chuong", "")) if str(q.get("chuong", "")).strip() else " → Chưa xác định chương")
-                + " • " + str(q.get("muc_do", "Chưa xác định mức độ"))
-                + " • " + str(q.get("thanh_phan_nang_luc", "Chưa xác định năng lực"))
-            )
-    
-            # GV chỉ cần sửa Khối/Chương ở đây; mức độ/năng lực sửa tại phần xác nhận câu.
-            with st.expander("🛠️ Sửa Khối / Chương nếu cần", expanded=False):
-                scope_key = re.sub(r"[^A-Za-z0-9]", "", str(q.get("id", "")))[:12] or "scope"
-                grades_scope = list((KHO_YCCD or {}).keys())
-                if not grades_scope:
-                    grades_scope = [str(q.get("khoi", "") or "")]
-                grade0_scope = q.get("khoi", "") if q.get("khoi", "") in grades_scope else grades_scope[0]
-                grade_scope = st.selectbox(
-                    "Khối đúng",
-                    grades_scope,
-                    index=grades_scope.index(grade0_scope),
-                    key=f"grad_review_scope_grade_{scope_key}",
-                )
-    
-                chapters_scope = list((KHO_YCCD.get(grade_scope, {}) or {}).keys())
-                if not chapters_scope:
-                    chapters_scope = [str(q.get("chuong", "") or "")]
-                chapter0_scope = q.get("chuong", "") if q.get("chuong", "") in chapters_scope else chapters_scope[0]
-                chapter_scope = st.selectbox(
-                    "Chương đúng",
-                    chapters_scope,
-                    index=chapters_scope.index(chapter0_scope),
-                    key=f"grad_review_scope_chapter_{scope_key}_{grade_scope}",
-                )
-    
-                # Ngân hàng tốt nghiệp không yêu cầu GV gán tới Bài.
-                lesson_value_scope = ""
-    
-                apply_tf_scope = True
-                if q.get("dang_cau") == "Đúng / Sai":
-                    apply_tf_scope = st.checkbox(
-                        "Áp dụng phạm vi này cho cả 4 ý a–d",
-                        value=True,
-                        key=f"grad_review_scope_apply_tf_{scope_key}",
-                        help="Mức độ, năng lực và đáp án của từng ý vẫn được giữ riêng; chỉ đồng bộ Khối/Chương.",
-                    )
-    
-                if st.button(
-                    "💾 LƯU KHỐI / CHƯƠNG",
-                    type="primary",
-                    use_container_width=True,
-                    key=f"grad_review_scope_save_{scope_key}",
-                ):
-                    if _grad_cap_nhat_pham_vi_gv(
-                        q, grade_scope, chapter_scope, lesson_value_scope, ap_dung_4_y=apply_tf_scope
-                    ):
-                        st.success("Đã lưu Khối / Chương do GV xác nhận.")
-                        st.rerun()
-                    else:
-                        st.error("Không tìm thấy câu để cập nhật phạm vi.")
-    
-            st.markdown("### Nội dung nguyên câu")
-            st.write(q.get("cau_hoi", ""))
-            hien_thi_tai_nguyen_cau_tot_nghiep(q)
-    
-            if q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn":
-                for lc in q.get("lua_chon", []) or []:
-                    st.write(lc)
-            elif q.get("dang_cau") == "Đúng / Sai":
-                for nd in q.get("nhan_dinh_meta", []) or []:
-                    ky = nd.get("ky_hieu", "")
-                    st.write(f"**{ky})** {nd.get('noi_dung','')}")
-                    st.caption(
-                        f"Phạm vi: {nd.get('khoi', q.get('khoi',''))}"
-                        + (f" → {nd.get('chuong','')}" if str(nd.get('chuong','')).strip() else "")
-                        + f" • Mức độ: {nd.get('muc_do','Chưa xác định')}"
-                        + f" • Năng lực: {nd.get('thanh_phan_nang_luc','Chưa xác định')}"
-                    )
-    
-            st.markdown("#### Đáp án / hướng dẫn giải")
-            if q.get("dang_cau") == "Đúng / Sai":
-                for nd in q.get("nhan_dinh_meta", []) or []:
-                    st.write(f"**{nd.get('ky_hieu','')}) {nd.get('dap_an','—')}**")
-                    if str(nd.get("giai_thich", "") or "").strip():
-                        st.caption(f"Giải thích: {nd.get('giai_thich','')}")
-            else:
-                st.write("**Đáp án:**", q.get("dap_an", "—"))
-            if q.get("giai_thich"):
-                nguon_gt = str(q.get("nguon_giai_thich", "") or "").strip()
-                if nguon_gt:
-                    st.caption(f"Nguồn lời giải: {nguon_gt}")
-                st.write("**Hướng dẫn giải:**", q.get("giai_thich", ""))
-            elif q.get("dang_cau") != "Đúng / Sai":
-                st.caption("Chưa có hướng dẫn giải. Khi AI rà soát đáp án khớp và đủ tin cậy, app sẽ tự tạo lời giải để lưu dùng lâu dài.")
-    
-            if q.get("dang_cau") != "Đúng / Sai":
-                st.caption(
-                    "Mức độ: " + str(q.get("muc_do", "Chưa xác định"))
-                    + " • Thành phần năng lực: "
-                    + str(q.get("thanh_phan_nang_luc", "Chưa xác định"))
-                )
-    
-            if q.get("ai_ra_soat"):
-                with st.expander("Xem kết quả AI rà soát", expanded=False):
-                    data_rs = q.get("ai_ra_soat") or {}
-                    st.write("**Kết luận:**", data_rs.get("ket_luan", ""))
-                    st.write("**Độ tin cậy:**", f"{float(data_rs.get('do_tin_cay',0) or 0)*100:.0f}%")
-                    if q.get("dang_cau") == "Đúng / Sai":
-                        gt4 = list(data_rs.get("giai_thich_4_y", []) or [])
-                        if gt4:
-                            st.write("**Giải thích AI đề xuất:**")
-                            for i, gt in enumerate(gt4[:4]):
-                                st.write(f"{'abcd'[i]}) {gt}")
-                    else:
-                        gt = str(data_rs.get("huong_dan_giai_de_xuat", "") or "").strip()
-                        if gt:
-                            st.write("**Hướng dẫn giải AI đề xuất:**", gt)
-                    st.caption("Bản AI đề xuất chỉ trở thành lời giải dùng cho HS khi đáp án nguồn khớp và AI đủ tin cậy; nếu không, GV phải duyệt.")
-    
-        # ------------------------------------------------------
-        # SỬA / DUYỆT CÂU ĐANG CHỌN
-        # ------------------------------------------------------
-        with st.expander("✏️ GV sửa đáp án / năng lực và xác nhận", expanded=q.get("trang_thai") in {"Cần GV xem", "Thiếu đáp án"}):
-            q_edit = dict(q)
-            if q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn":
-                current = str(q.get("dap_an", "") or "A").upper()
-                if current not in ["A", "B", "C", "D"]:
-                    current = "A"
-                new_answer = st.selectbox("Đáp án đúng", ["A", "B", "C", "D"], index=["A", "B", "C", "D"].index(current), key="grad_edit_mcq_ans")
-                current_nl = q.get("thanh_phan_nang_luc", "")
-                new_nl = st.selectbox(
-                    "Thành phần năng lực",
-                    THANH_PHAN_NANG_LUC,
-                    index=THANH_PHAN_NANG_LUC.index(current_nl) if current_nl in THANH_PHAN_NANG_LUC else 0,
-                    key="grad_edit_mcq_nl",
-                )
-                q_edit["dap_an"] = new_answer
-                q_edit["thanh_phan_nang_luc"] = new_nl
-    
-            elif q.get("dang_cau") == "Trả lời ngắn":
-                q_edit["dap_an"] = st.text_input("Đáp án đúng", value=str(q.get("dap_an", "")), key="grad_edit_short_ans")
-                current_nl = q.get("thanh_phan_nang_luc", "")
-                q_edit["thanh_phan_nang_luc"] = st.selectbox(
-                    "Thành phần năng lực",
-                    THANH_PHAN_NANG_LUC,
-                    index=THANH_PHAN_NANG_LUC.index(current_nl) if current_nl in THANH_PHAN_NANG_LUC else 0,
-                    key="grad_edit_short_nl",
-                )
-    
-            else:
-                meta = [dict(x) for x in (q.get("nhan_dinh_meta", []) or [])]
-                for i, nd in enumerate(meta):
-                    st.markdown(f"**Ý {nd.get('ky_hieu','abcd'[i] if i < 4 else i+1)}**")
-                    ca, cb = st.columns(2)
-                    with ca:
-                        ans = str(nd.get("dap_an", "") or "Đúng")
-                        nd["dap_an"] = st.selectbox(
-                            "Đáp án",
-                            ["Đúng", "Sai"],
-                            index=0 if ans == "Đúng" else 1,
-                            key=f"grad_edit_tf_ans_{i}",
-                        )
-                    with cb:
-                        nl0 = nd.get("thanh_phan_nang_luc", "")
-                        nd["thanh_phan_nang_luc"] = st.selectbox(
-                            "Thành phần năng lực",
-                            THANH_PHAN_NANG_LUC,
-                            index=THANH_PHAN_NANG_LUC.index(nl0) if nl0 in THANH_PHAN_NANG_LUC else 0,
-                            key=f"grad_edit_tf_nl_{i}",
-                        )
-                q_edit["nhan_dinh_meta"] = meta
-    
-            q_edit["giai_thich"] = st.text_area(
-                "Hướng dẫn giải / ghi chú của GV",
-                value=str(q.get("giai_thich", "")),
-                height=130,
-                key="grad_edit_solution",
-            )
-    
-            if st.button("✅ GV XÁC NHẬN & LƯU CÂU NÀY", type="primary", use_container_width=True, key="grad_edit_confirm"):
-                q_edit["trang_thai"] = "GV đã duyệt"
-                q_edit["duoc_dung_luyen_hs"] = True
-                q_edit["canh_bao_dap_an"] = ""
-                if str(q_edit.get("giai_thich", "") or "").strip():
-                    # Nếu GV có sửa/nhập lời giải thì GV là nguồn xác nhận cuối cùng.
-                    if str(q_edit.get("giai_thich", "")) != str(q.get("giai_thich", "")) or not q_edit.get("nguon_giai_thich"):
-                        q_edit["nguon_giai_thich"] = "GV xác nhận / bổ sung"
-                q_edit["ngay_gv_duyet"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-                bank2 = doc_ngan_hang_tot_nghiep_thuc_te()
-                for i, item in enumerate(bank2):
-                    if item.get("id") == q.get("id"):
-                        bank2[i] = q_edit
-                        break
-                luu_ngan_hang_tot_nghiep_thuc_te(bank2)
-                st.success("Đã lưu xác nhận của GV.")
-                st.rerun()
-    
+
         st.divider()
-        st.subheader("③ Sẵn sàng tạo đề cho học sinh")
-        st.caption(
-            "Câu có **đáp án nguồn đầy đủ** được tính là dùng được ngay, kể cả đang ở trạng thái Chờ rà soát. "
-            "Chỉ câu Thiếu đáp án / Cần GV xem / Ngừng sử dụng mới bị loại khỏi pool."
+        st.subheader("① Nhập đề vào ngân hàng")
+        files = st.file_uploader(
+            "Chọn một hoặc nhiều đề Word",
+            type=["docx"],
+            accept_multiple_files=True,
+            key="grad_real_upload",
+            help="Word cho phép app giữ ảnh/bảng gắn với từng câu chính xác hơn PDF.",
         )
-        usable = [
-            q for q in bank
-            if cau_tot_nghiep_du_dieu_kien_su_dung(q)
-        ]
-        u1, u2, u3 = st.columns(3)
-        u1.metric("4 lựa chọn dùng được", sum(q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" for q in usable))
-        u2.metric("Đúng/Sai dùng được", sum(q.get("dang_cau") == "Đúng / Sai" for q in usable))
-        u3.metric("Trả lời ngắn dùng được", sum(q.get("dang_cau") == "Trả lời ngắn" for q in usable))
-    
-        _, missing = rut_de_tot_nghiep_tu_de_that(usable, seed="kiem-tra-form")
-        if missing:
-            st.warning("Ngân hàng chưa đủ để tạo một đề 18/4/6 không trùng câu.")
-            st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
-        else:
-            st.success(
-                "Ngân hàng đã đủ form. Khi tạo đề, app sẽ trộn câu từ các file nguồn khác nhau, "
-                "không lấy trùng một câu trong cùng mã đề và giữ nguyên ảnh/bảng của câu gốc."
+
+        if files:
+            st.caption(f"Đã chọn **{len(files)} file**. Chưa nhập vào ngân hàng cho đến khi bấm nút bên dưới.")
+
+        if st.button(
+            "📥 TÁCH & NHẬP ĐỀ VÀO NGÂN HÀNG TỐT NGHIỆP",
+            type="primary",
+            use_container_width=True,
+            disabled=not bool(files),
+            key="grad_real_import",
+        ):
+            bank = doc_ngan_hang_tot_nghiep_thuc_te()
+            by_fp = {fingerprint_cau_tot_nghiep_thuc_te(q): i for i, q in enumerate(bank)}
+            total_new = 0
+            total_dup = 0
+            reports = []
+
+            for uploaded in files or []:
+                try:
+                    source_name = os.path.basename(uploaded.name)
+                    safe_name = re.sub(r"[^0-9A-Za-zÀ-ỹ_.() -]+", "_", source_name)
+                    save_path = os.path.join(GRAD_SOURCE_DIR, safe_name)
+                    with open(save_path, "wb") as f:
+                        f.write(uploaded.getbuffer())
+
+                    qs = tach_de_tot_nghiep_docx(save_path, source_name)
+                    counts = {
+                        "Trắc nghiệm 4 lựa chọn": 0,
+                        "Đúng / Sai": 0,
+                        "Trả lời ngắn": 0,
+                    }
+                    new_here = 0
+                    dup_here = 0
+
+                    for q in qs:
+                        counts[q.get("dang_cau", "")] = counts.get(q.get("dang_cau", ""), 0) + 1
+                        fp = fingerprint_cau_tot_nghiep_thuc_te(q)
+                        if fp in by_fp:
+                            idx = by_fp[fp]
+                            item = dict(bank[idx])
+                            sources = list(item.get("nguon_files", []) or [])
+                            primary = str(item.get("nguon_file", "")).strip()
+                            if primary and primary not in sources:
+                                sources.append(primary)
+                            if source_name not in sources:
+                                sources.append(source_name)
+                            item["nguon_files"] = sources
+
+                            # Nếu câu đã có từ lần nhập trước nhưng khi đó app chưa đọc được
+                            # đáp án/định dạng, lần nhập lại sẽ nâng cấp dữ liệu thay vì bỏ qua.
+                            if (not _grad_co_dap_an_day_du(item)) and _grad_co_dap_an_day_du(q):
+                                if q.get("dang_cau") == "Đúng / Sai":
+                                    item["nhan_dinh_meta"] = q.get("nhan_dinh_meta", [])
+                                else:
+                                    item["dap_an"] = q.get("dap_an", "")
+                                item["trang_thai"] = "Chờ rà soát"
+                                item["duoc_dung_luyen_hs"] = True
+                                item["san_sang_tu_dap_an_nguon"] = True
+                                item["canh_bao_dap_an"] = ""
+                                if q.get("dap_an_doc_tu_dinh_dang"):
+                                    item["dap_an_doc_tu_dinh_dang"] = True
+
+                            # Bổ sung lời giải/tài nguyên nếu bản cũ còn thiếu.
+                            if not str(item.get("giai_thich", "") or "").strip() and str(q.get("giai_thich", "") or "").strip():
+                                item["giai_thich"] = q.get("giai_thich", "")
+                                item["nguon_giai_thich"] = q.get("nguon_giai_thich", "")
+                            if not (item.get("tai_nguyen_truc_quan") or []) and (q.get("tai_nguyen_truc_quan") or []):
+                                item["tai_nguyen_truc_quan"] = q.get("tai_nguyen_truc_quan", [])
+                                item["du_lieu_truc_quan"] = q.get("du_lieu_truc_quan", {})
+
+                            # Luôn cập nhật phân loại ôn tập thô theo cơ chế mới.
+                            item = gan_phan_loai_on_tap_cho_cau_tot_nghiep(item, force=False)
+                            bank[idx] = item
+                            dup_here += 1
+                            continue
+
+                        q["nguon_files"] = [source_name]
+                        by_fp[fp] = len(bank)
+                        bank.append(q)
+                        new_here += 1
+
+                    total_new += new_here
+                    total_dup += dup_here
+                    reports.append({
+                        "File": source_name,
+                        "Tách được": len(qs),
+                        "4 lựa chọn": counts.get("Trắc nghiệm 4 lựa chọn", 0),
+                        "Đúng/Sai": counts.get("Đúng / Sai", 0),
+                        "Trả lời ngắn": counts.get("Trả lời ngắn", 0),
+                        "Câu mới": new_here,
+                        "Trùng": dup_here,
+                    })
+                except Exception as e:
+                    reports.append({
+                        "File": getattr(uploaded, "name", ""),
+                        "Tách được": 0,
+                        "4 lựa chọn": 0,
+                        "Đúng/Sai": 0,
+                        "Trả lời ngắn": 0,
+                        "Câu mới": 0,
+                        "Trùng": 0,
+                        "Lỗi": str(e),
+                    })
+
+            luu_ngan_hang_tot_nghiep_thuc_te(bank)
+            st.success(f"Đã thêm **{total_new} câu mới**; bỏ qua **{total_dup} câu trùng**.")
+            st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
+            for r in reports:
+                if r.get("Tách được") and (
+                    r.get("4 lựa chọn") != 18 or r.get("Đúng/Sai") != 4 or r.get("Trả lời ngắn") != 6
+                ):
+                    st.warning(
+                        f"File **{r.get('File')}** chưa được đọc đúng form 18/4/6. "
+                        "Hãy xem lại file hoặc dùng file mẫu để nhập ổn định hơn."
+                    )
+
+    else:
+        bank = doc_ngan_hang_tot_nghiep_thuc_te()
+        st.divider()
+        st.subheader("② Kiểm tra & duyệt ngân hàng")
+
+        if not bank:
+            st.info("Chưa có câu nào trong ngân hàng tốt nghiệp từ đề thật.")
+            return
+
+        count_mcq = sum(q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" for q in bank)
+        count_tf = sum(q.get("dang_cau") == "Đúng / Sai" for q in bank)
+        count_short = sum(q.get("dang_cau") == "Trả lời ngắn" for q in bank)
+        count_warn = sum(q.get("trang_thai") in {"Thiếu đáp án", "Cần GV xem"} for q in bank)
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("Tổng câu", len(bank))
+        m2.metric("4 lựa chọn", count_mcq)
+        m3.metric("Đúng/Sai", count_tf)
+        m4.metric("Trả lời ngắn", count_short)
+        m5.metric("Cần GV xem", count_warn)
+
+        with st.expander("🔎 Mở quản lý, bộ lọc và chi tiết ngân hàng tốt nghiệp", expanded=False):
+            all_sources = sorted({
+                src
+                for q in bank
+                for src in (q.get("nguon_files", []) or [q.get("nguon_file", "")])
+                if str(src or "").strip()
+            })
+
+            # Kho quản trị rõ ràng: xem → chọn → sửa → xóa từng câu đã nhập.
+            hien_thi_kho_cau_tot_nghiep_da_nhap(bank)
+
+            st.markdown("### 🧭 Phân loại nhanh cho Ngân hàng tốt nghiệp")
+            st.info(
+                "Để GV thao tác nhẹ, ngân hàng tốt nghiệp chỉ cần **Khối – Chương – Mức độ – Thành phần năng lực**. "
+                "Không bắt buộc gán Bài, YCCĐ hay chỉ báo. Có thể sửa trực tiếp 4 trường này trong **Kho câu đã nhập**."
             )
+
+            st.markdown("### 🔎 Rà soát / kiểm tra nhanh")
+            st.caption(
+                "Bộ lọc dưới đây dùng cho khâu rà soát. Mục **Cần GV xem** bao gồm cả "
+                "câu AI cảnh báo và câu **Thiếu đáp án**, nên số hiển thị luôn khớp với ô tổng quan phía trên."
+            )
+
+            # ------------------------------------------------------
+            # XÓA FILE NGUỒN ĐÃ NHẬP
+            # ------------------------------------------------------
+            if all_sources:
+                with st.expander("🗑️ Xóa file nguồn đã nhập", expanded=False):
+                    st.caption(
+                        "Xóa dữ liệu theo đúng file nguồn. Câu chỉ thuộc file đó sẽ bị xóa; "
+                        "câu trùng còn có nguồn khác sẽ được giữ lại."
+                    )
+                    src_del = st.selectbox(
+                        "Chọn file nguồn cần xóa",
+                        all_sources,
+                        key="grad_delete_source_select",
+                    )
+                    confirm_del = st.checkbox(
+                        "Tôi xác nhận muốn xóa dữ liệu của file nguồn này",
+                        key="grad_delete_source_confirm",
+                    )
+                    if st.button(
+                        "🗑️ XÓA FILE NGUỒN & DỮ LIỆU LIÊN QUAN",
+                        use_container_width=True,
+                        disabled=not confirm_del,
+                        key="grad_delete_source_button",
+                    ):
+                        bank_new = []
+                        removed_questions = 0
+                        kept_shared = 0
+                        for item in bank:
+                            item2 = dict(item)
+                            sources = list(item2.get("nguon_files", []) or [])
+                            primary = str(item2.get("nguon_file", "") or "").strip()
+                            if primary and primary not in sources:
+                                sources.append(primary)
+
+                            if src_del not in sources:
+                                bank_new.append(item2)
+                                continue
+
+                            remain = [x for x in sources if x != src_del]
+                            if remain:
+                                item2["nguon_files"] = remain
+                                if primary == src_del or not primary:
+                                    item2["nguon_file"] = remain[0]
+                                    if item2.get("nguon_tao") == "Đề thật / đề thi thử GV tải lên":
+                                        item2["nguon"] = remain[0]
+                                bank_new.append(item2)
+                                kept_shared += 1
+                            else:
+                                removed_questions += 1
+
+                        luu_ngan_hang_tot_nghiep_thuc_te(bank_new)
+
+                        # Xóa bản Word nguồn đã lưu. Ảnh/bảng chỉ xóa khi chắc chắn không còn câu dùng;
+                        # ở đây giữ media để tránh làm mất hình của câu trùng còn nguồn khác.
+                        safe_name = re.sub(r"[^0-9A-Za-zÀ-ỹ_.() -]+", "_", src_del)
+                        source_path = os.path.join(GRAD_SOURCE_DIR, safe_name)
+                        try:
+                            if os.path.exists(source_path):
+                                os.remove(source_path)
+                        except Exception:
+                            pass
+
+                        st.success(
+                            f"Đã xóa file nguồn **{src_del}**: xóa {removed_questions} câu riêng; "
+                            f"giữ {kept_shared} câu còn nguồn khác."
+                        )
+                        st.rerun()
+
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                source_filter = st.selectbox("Lọc theo file nguồn", ["Tất cả"] + all_sources, key="grad_real_filter_source")
+            with f2:
+                type_filter = st.selectbox(
+                    "Lọc theo dạng",
+                    ["Tất cả", "Trắc nghiệm 4 lựa chọn", "Đúng / Sai", "Trả lời ngắn"],
+                    key="grad_real_filter_type",
+                )
+            with f3:
+                status_filter = st.selectbox(
+                    "Lọc theo trạng thái",
+                    ["Tất cả", "Chờ rà soát", "Đã rà soát", "GV đã duyệt", "Cần GV xem", "Thiếu đáp án"],
+                    key="grad_real_filter_status",
+                )
+
+            filtered = []
+            for q in bank:
+                sources = q.get("nguon_files", []) or [q.get("nguon_file", "")]
+                if source_filter != "Tất cả" and source_filter not in sources:
+                    continue
+                if type_filter != "Tất cả" and q.get("dang_cau") != type_filter:
+                    continue
+                if not _grad_status_group_match(q, status_filter):
+                    continue
+                filtered.append(q)
+
+            st.caption(f"Đang hiển thị **{len(filtered)}/{len(bank)} câu**.")
+
+            # AI rà soát theo lô nhỏ, không tự chạy khi nhập để tiết kiệm quota.
+            b1, b2 = st.columns([1, 2])
+            with b1:
+                review_n = st.number_input(
+                    "Số câu rà soát/lượt",
+                    min_value=1,
+                    max_value=10,
+                    value=3,
+                    step=1,
+                    key="grad_real_review_n",
+                )
+            with b2:
+                st.caption(
+                    "AI chỉ **kiểm tra đáp án, xác nhận mức độ và thành phần năng lực**, không sáng tác/sửa câu. "
+                    "Câu đã có đáp án nguồn vẫn dùng được trước khi rà soát; nếu AI không chắc hoặc không khớp, "
+                    "app mới khóa câu và đưa sang Cần GV xem."
+                )
+
+            if st.button(
+                "🔎 AI RÀ SOÁT CÁC CÂU CHƯA KIỂM TRA",
+                use_container_width=True,
+                key="grad_real_review_batch",
+            ):
+                targets = [
+                    q for q in bank
+                    if q.get("trang_thai") == "Chờ rà soát"
+                    and not q.get("ai_ra_soat")
+                ][: int(review_n)]
+                if not targets:
+                    st.info("Không còn câu ở trạng thái Chờ rà soát.")
+                else:
+                    progress = st.progress(0)
+                    status_box = st.empty()
+                    updated = list(bank)
+                    by_id = {q.get("id"): i for i, q in enumerate(updated)}
+                    done = 0
+                    for k, q in enumerate(targets, start=1):
+                        status_box.write(f"Đang rà soát {k}/{len(targets)} • {q.get('nguon_file','')} • Câu {q.get('so_cau_goc','')}")
+                        try:
+                            q2 = ra_soat_cau_tot_nghiep_bang_ai(q)
+                            idx = by_id.get(q.get("id"))
+                            if idx is not None:
+                                updated[idx] = q2
+                            done += 1
+                        except Exception as e:
+                            st.warning(f"Dừng rà soát tại câu {q.get('so_cau_goc','')}: {e}")
+                            break
+                        progress.progress(k / max(len(targets), 1))
+                    luu_ngan_hang_tot_nghiep_thuc_te(updated)
+                    status_box.success(f"Đã rà soát {done} câu. Câu chưa chắc được giữ lại để GV xem.")
+                    st.rerun()
+
+            if not filtered:
+                st.info("Không có câu phù hợp bộ lọc.")
+                return
+
+            labels = [
+                f"{q.get('nguon_file','')} • Phần {q.get('phan_goc','')} • Câu {q.get('so_cau_goc','')} • {q.get('dang_cau','')} • {q.get('trang_thai','')}"
+                for q in filtered
+            ]
+            selected_label = st.selectbox("Chọn câu để xem / sửa", labels, key="grad_real_select_question")
+            q = filtered[labels.index(selected_label)]
+
+            with st.container(border=True):
+                st.write(f"**Nguồn:** {q.get('nguon_file','')} • **Phần {q.get('phan_goc','')} – Câu {q.get('so_cau_goc','')}**")
+                if q.get("trang_thai") == "Cần GV xem":
+                    st.error("⚠️ AI chưa chắc đáp án này: " + str(q.get("canh_bao_dap_an", "")))
+                elif q.get("trang_thai") == "Thiếu đáp án":
+                    st.warning("⚠️ File nguồn chưa đọc được đáp án. GV cần bổ sung trước khi dùng.")
+                elif q.get("trang_thai") == "Đã rà soát":
+                    st.success(f"✅ AI đã rà soát • độ tin cậy {float(q.get('do_tin_cay_dap_an',0) or 0)*100:.0f}%")
+                elif q.get("trang_thai") == "Chờ rà soát" and cau_tot_nghiep_du_dieu_kien_su_dung(q):
+                    st.info(
+                        "✅ Câu đã có đáp án nguồn đầy đủ nên **được dùng ngay** để tạo đề và ôn tập. "
+                        "AI rà soát là bước kiểm tra bổ sung; nếu phát hiện nghi vấn, app sẽ tự khóa câu để GV xem."
+                    )
+
+                st.caption(
+                    "📚 Phân loại tốt nghiệp: "
+                    + (str(q.get("khoi", "")) or "Chưa xác định khối")
+                    + (" → " + str(q.get("chuong", "")) if str(q.get("chuong", "")).strip() else " → Chưa xác định chương")
+                    + " • " + str(q.get("muc_do", "Chưa xác định mức độ"))
+                    + " • " + str(q.get("thanh_phan_nang_luc", "Chưa xác định năng lực"))
+                )
+
+                # GV chỉ cần sửa Khối/Chương ở đây; mức độ/năng lực sửa tại phần xác nhận câu.
+                with st.expander("🛠️ Sửa Khối / Chương nếu cần", expanded=False):
+                    scope_key = re.sub(r"[^A-Za-z0-9]", "", str(q.get("id", "")))[:12] or "scope"
+                    grades_scope = list((KHO_YCCD or {}).keys())
+                    if not grades_scope:
+                        grades_scope = [str(q.get("khoi", "") or "")]
+                    grade0_scope = q.get("khoi", "") if q.get("khoi", "") in grades_scope else grades_scope[0]
+                    grade_scope = st.selectbox(
+                        "Khối đúng",
+                        grades_scope,
+                        index=grades_scope.index(grade0_scope),
+                        key=f"grad_review_scope_grade_{scope_key}",
+                    )
+
+                    chapters_scope = list((KHO_YCCD.get(grade_scope, {}) or {}).keys())
+                    if not chapters_scope:
+                        chapters_scope = [str(q.get("chuong", "") or "")]
+                    chapter0_scope = q.get("chuong", "") if q.get("chuong", "") in chapters_scope else chapters_scope[0]
+                    chapter_scope = st.selectbox(
+                        "Chương đúng",
+                        chapters_scope,
+                        index=chapters_scope.index(chapter0_scope),
+                        key=f"grad_review_scope_chapter_{scope_key}_{grade_scope}",
+                    )
+
+                    # Ngân hàng tốt nghiệp không yêu cầu GV gán tới Bài.
+                    lesson_value_scope = ""
+
+                    apply_tf_scope = True
+                    if q.get("dang_cau") == "Đúng / Sai":
+                        apply_tf_scope = st.checkbox(
+                            "Áp dụng phạm vi này cho cả 4 ý a–d",
+                            value=True,
+                            key=f"grad_review_scope_apply_tf_{scope_key}",
+                            help="Mức độ, năng lực và đáp án của từng ý vẫn được giữ riêng; chỉ đồng bộ Khối/Chương.",
+                        )
+
+                    if st.button(
+                        "💾 LƯU KHỐI / CHƯƠNG",
+                        type="primary",
+                        use_container_width=True,
+                        key=f"grad_review_scope_save_{scope_key}",
+                    ):
+                        if _grad_cap_nhat_pham_vi_gv(
+                            q, grade_scope, chapter_scope, lesson_value_scope, ap_dung_4_y=apply_tf_scope
+                        ):
+                            st.success("Đã lưu Khối / Chương do GV xác nhận.")
+                            st.rerun()
+                        else:
+                            st.error("Không tìm thấy câu để cập nhật phạm vi.")
+
+                st.markdown("### Nội dung nguyên câu")
+                st.write(q.get("cau_hoi", ""))
+                hien_thi_tai_nguyen_cau_tot_nghiep(q)
+
+                if q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn":
+                    for lc in q.get("lua_chon", []) or []:
+                        st.write(lc)
+                elif q.get("dang_cau") == "Đúng / Sai":
+                    for nd in q.get("nhan_dinh_meta", []) or []:
+                        ky = nd.get("ky_hieu", "")
+                        st.write(f"**{ky})** {nd.get('noi_dung','')}")
+                        st.caption(
+                            f"Phạm vi: {nd.get('khoi', q.get('khoi',''))}"
+                            + (f" → {nd.get('chuong','')}" if str(nd.get('chuong','')).strip() else "")
+                            + f" • Mức độ: {nd.get('muc_do','Chưa xác định')}"
+                            + f" • Năng lực: {nd.get('thanh_phan_nang_luc','Chưa xác định')}"
+                        )
+
+                st.markdown("#### Đáp án / hướng dẫn giải")
+                if q.get("dang_cau") == "Đúng / Sai":
+                    for nd in q.get("nhan_dinh_meta", []) or []:
+                        st.write(f"**{nd.get('ky_hieu','')}) {nd.get('dap_an','—')}**")
+                        if str(nd.get("giai_thich", "") or "").strip():
+                            st.caption(f"Giải thích: {nd.get('giai_thich','')}")
+                else:
+                    st.write("**Đáp án:**", q.get("dap_an", "—"))
+                if q.get("giai_thich"):
+                    nguon_gt = str(q.get("nguon_giai_thich", "") or "").strip()
+                    if nguon_gt:
+                        st.caption(f"Nguồn lời giải: {nguon_gt}")
+                    st.write("**Hướng dẫn giải:**", q.get("giai_thich", ""))
+                elif q.get("dang_cau") != "Đúng / Sai":
+                    st.caption("Chưa có hướng dẫn giải. Khi AI rà soát đáp án khớp và đủ tin cậy, app sẽ tự tạo lời giải để lưu dùng lâu dài.")
+
+                if q.get("dang_cau") != "Đúng / Sai":
+                    st.caption(
+                        "Mức độ: " + str(q.get("muc_do", "Chưa xác định"))
+                        + " • Thành phần năng lực: "
+                        + str(q.get("thanh_phan_nang_luc", "Chưa xác định"))
+                    )
+
+                if q.get("ai_ra_soat"):
+                    with st.expander("Xem kết quả AI rà soát", expanded=False):
+                        data_rs = q.get("ai_ra_soat") or {}
+                        st.write("**Kết luận:**", data_rs.get("ket_luan", ""))
+                        st.write("**Độ tin cậy:**", f"{float(data_rs.get('do_tin_cay',0) or 0)*100:.0f}%")
+                        if q.get("dang_cau") == "Đúng / Sai":
+                            gt4 = list(data_rs.get("giai_thich_4_y", []) or [])
+                            if gt4:
+                                st.write("**Giải thích AI đề xuất:**")
+                                for i, gt in enumerate(gt4[:4]):
+                                    st.write(f"{'abcd'[i]}) {gt}")
+                        else:
+                            gt = str(data_rs.get("huong_dan_giai_de_xuat", "") or "").strip()
+                            if gt:
+                                st.write("**Hướng dẫn giải AI đề xuất:**", gt)
+                        st.caption("Bản AI đề xuất chỉ trở thành lời giải dùng cho HS khi đáp án nguồn khớp và AI đủ tin cậy; nếu không, GV phải duyệt.")
+
+            # ------------------------------------------------------
+            # SỬA / DUYỆT CÂU ĐANG CHỌN
+            # ------------------------------------------------------
+            with st.expander("✏️ GV sửa đáp án / năng lực và xác nhận", expanded=q.get("trang_thai") in {"Cần GV xem", "Thiếu đáp án"}):
+                q_edit = dict(q)
+                if q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn":
+                    current = str(q.get("dap_an", "") or "A").upper()
+                    if current not in ["A", "B", "C", "D"]:
+                        current = "A"
+                    new_answer = st.selectbox("Đáp án đúng", ["A", "B", "C", "D"], index=["A", "B", "C", "D"].index(current), key="grad_edit_mcq_ans")
+                    current_nl = q.get("thanh_phan_nang_luc", "")
+                    new_nl = st.selectbox(
+                        "Thành phần năng lực",
+                        THANH_PHAN_NANG_LUC,
+                        index=THANH_PHAN_NANG_LUC.index(current_nl) if current_nl in THANH_PHAN_NANG_LUC else 0,
+                        key="grad_edit_mcq_nl",
+                    )
+                    q_edit["dap_an"] = new_answer
+                    q_edit["thanh_phan_nang_luc"] = new_nl
+
+                elif q.get("dang_cau") == "Trả lời ngắn":
+                    q_edit["dap_an"] = st.text_input("Đáp án đúng", value=str(q.get("dap_an", "")), key="grad_edit_short_ans")
+                    current_nl = q.get("thanh_phan_nang_luc", "")
+                    q_edit["thanh_phan_nang_luc"] = st.selectbox(
+                        "Thành phần năng lực",
+                        THANH_PHAN_NANG_LUC,
+                        index=THANH_PHAN_NANG_LUC.index(current_nl) if current_nl in THANH_PHAN_NANG_LUC else 0,
+                        key="grad_edit_short_nl",
+                    )
+
+                else:
+                    meta = [dict(x) for x in (q.get("nhan_dinh_meta", []) or [])]
+                    for i, nd in enumerate(meta):
+                        st.markdown(f"**Ý {nd.get('ky_hieu','abcd'[i] if i < 4 else i+1)}**")
+                        ca, cb = st.columns(2)
+                        with ca:
+                            ans = str(nd.get("dap_an", "") or "Đúng")
+                            nd["dap_an"] = st.selectbox(
+                                "Đáp án",
+                                ["Đúng", "Sai"],
+                                index=0 if ans == "Đúng" else 1,
+                                key=f"grad_edit_tf_ans_{i}",
+                            )
+                        with cb:
+                            nl0 = nd.get("thanh_phan_nang_luc", "")
+                            nd["thanh_phan_nang_luc"] = st.selectbox(
+                                "Thành phần năng lực",
+                                THANH_PHAN_NANG_LUC,
+                                index=THANH_PHAN_NANG_LUC.index(nl0) if nl0 in THANH_PHAN_NANG_LUC else 0,
+                                key=f"grad_edit_tf_nl_{i}",
+                            )
+                    q_edit["nhan_dinh_meta"] = meta
+
+                q_edit["giai_thich"] = st.text_area(
+                    "Hướng dẫn giải / ghi chú của GV",
+                    value=str(q.get("giai_thich", "")),
+                    height=130,
+                    key="grad_edit_solution",
+                )
+
+                if st.button("✅ GV XÁC NHẬN & LƯU CÂU NÀY", type="primary", use_container_width=True, key="grad_edit_confirm"):
+                    q_edit["trang_thai"] = "GV đã duyệt"
+                    q_edit["duoc_dung_luyen_hs"] = True
+                    q_edit["canh_bao_dap_an"] = ""
+                    if str(q_edit.get("giai_thich", "") or "").strip():
+                        # Nếu GV có sửa/nhập lời giải thì GV là nguồn xác nhận cuối cùng.
+                        if str(q_edit.get("giai_thich", "")) != str(q.get("giai_thich", "")) or not q_edit.get("nguon_giai_thich"):
+                            q_edit["nguon_giai_thich"] = "GV xác nhận / bổ sung"
+                    q_edit["ngay_gv_duyet"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+                    bank2 = doc_ngan_hang_tot_nghiep_thuc_te()
+                    for i, item in enumerate(bank2):
+                        if item.get("id") == q.get("id"):
+                            bank2[i] = q_edit
+                            break
+                    luu_ngan_hang_tot_nghiep_thuc_te(bank2)
+                    st.success("Đã lưu xác nhận của GV.")
+                    st.rerun()
+
+            st.divider()
+            st.subheader("③ Sẵn sàng tạo đề cho học sinh")
+            st.caption(
+                "Câu có **đáp án nguồn đầy đủ** được tính là dùng được ngay, kể cả đang ở trạng thái Chờ rà soát. "
+                "Chỉ câu Thiếu đáp án / Cần GV xem / Ngừng sử dụng mới bị loại khỏi pool."
+            )
+            usable = [
+                q for q in bank
+                if cau_tot_nghiep_du_dieu_kien_su_dung(q)
+            ]
+            u1, u2, u3 = st.columns(3)
+            u1.metric("4 lựa chọn dùng được", sum(q.get("dang_cau") == "Trắc nghiệm 4 lựa chọn" for q in usable))
+            u2.metric("Đúng/Sai dùng được", sum(q.get("dang_cau") == "Đúng / Sai" for q in usable))
+            u3.metric("Trả lời ngắn dùng được", sum(q.get("dang_cau") == "Trả lời ngắn" for q in usable))
+
+            _, missing = rut_de_tot_nghiep_tu_de_that(usable, seed="kiem-tra-form")
+            if missing:
+                st.warning("Ngân hàng chưa đủ để tạo một đề 18/4/6 không trùng câu.")
+                st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
+            else:
+                st.success(
+                    "Ngân hàng đã đủ form. Khi tạo đề, app sẽ trộn câu từ các file nguồn khác nhau, "
+                    "không lấy trùng một câu trong cùng mã đề và giữ nguyên ảnh/bảng của câu gốc."
+                )
 
 
 def gan_muc_dich_cau_hien_co():
@@ -23637,7 +23488,7 @@ def quan_ly_diem_on_kiem_tra():
         "GV có thể lọc theo lớp, loại bài và đề/ma trận cụ thể, sau đó xuất Excel."
     )
 
-    ds_lop = lay_danh_sach_lop_tu_hoc_sinh()
+    ds_lop = _gv_lay_danh_sach_lop_nhe()
     if not ds_lop:
         st.info("Chưa có lớp/học sinh trong hệ thống.")
         return
@@ -23740,14 +23591,30 @@ def quan_ly_diem_on_kiem_tra():
         height=430
     )
 
-    st.download_button(
-        "⬇️ XUẤT BẢNG ĐIỂM EXCEL THEO LỚP",
-        data=tao_excel_bang_diem_lop(ds_hien, lop),
-        file_name=f"bang_diem_{chuan_hoa_ten_lop(lop)}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
-        key="gv_score_export"
+    export_score_key = (
+        f"_gv_score_export_{chuan_hoa_ten_lop(lop)}_"
+        f"{hashlib.md5(str([(x.get('id',''), x.get('diem',0)) for x in ds_hien]).encode()).hexdigest()[:10]}"
     )
+    file_score = st.session_state.get(export_score_key)
+
+    if not isinstance(file_score, (bytes, bytearray)):
+        if st.button(
+            "⬇️ XUẤT BẢNG ĐIỂM EXCEL THEO LỚP",
+            use_container_width=True,
+            key="gv_score_prepare_export"
+        ):
+            with st.spinner("Đang tạo file Excel..."):
+                st.session_state[export_score_key] = tao_excel_bang_diem_lop(ds_hien, lop)
+            st.rerun()
+    else:
+        st.download_button(
+            "⬇️ TẢI BẢNG ĐIỂM EXCEL THEO LỚP",
+            data=file_score,
+            file_name=f"bang_diem_{chuan_hoa_ten_lop(lop)}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="gv_score_export"
+        )
 
     st.markdown("---")
     st.subheader("🎯 Phản hồi nhanh về điểm yếu")
