@@ -18923,14 +18923,32 @@ def ngan_hang_hat_giong():
             # Hiển thị tiến độ để không còn cảm giác app bị treo.
             progress = st.progress(0)
             status_box = st.empty()
-            status_box.info("1/4 Đang đọc dữ liệu hiện có...")
+            status_box.info("1/4 Đang đối chiếu dữ liệu hiện có...")
 
-            bank_seed = (
-        _seed_bank_runtime
-        if isinstance(_seed_bank_runtime, list)
-        else doc_ngan_hang_hat_giong()
-    )
-            bank_main = doc_ngan_hang()
+            # Hai kho độc lập nên đọc SONG SONG thay vì chờ kho Hạt giống xong
+            # mới đọc tiếp Ngân hàng chung. Với kho lớn, bước này giảm đáng kể
+            # thời gian chờ mà không thay đổi dữ liệu hay quy tắc chống trùng.
+            #
+            # Ngân hàng chung dùng dữ liệu THÔ ở bước nhập hạt giống:
+            # chống trùng chỉ cần nội dung/nguồn/id, không cần quét lại toàn bộ
+            # 1.000+ câu để gán chỉ báo trước khi so trùng.
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _seed_doc_list_raw(_path):
+                _data = _doc_document_shared(_path, [])
+                return _data if isinstance(_data, list) else []
+
+            if isinstance(_seed_bank_runtime, list):
+                bank_seed = _seed_bank_runtime
+                with ThreadPoolExecutor(max_workers=1) as _pool:
+                    bank_main = _pool.submit(_seed_doc_list_raw, BANK_PATH).result()
+            else:
+                with ThreadPoolExecutor(max_workers=2) as _pool:
+                    _future_seed = _pool.submit(_seed_doc_list_raw, SEED_BANK_PATH)
+                    _future_main = _pool.submit(_seed_doc_list_raw, BANK_PATH)
+                    bank_seed = _future_seed.result()
+                    bank_main = _future_main.result()
+
             # Index NH chính đúng 1 lần cho cả lượt nhập.
             bank_exact_index = _seed_tao_index_trung_chinh_xac_ngan_hang(bank_main)
 
