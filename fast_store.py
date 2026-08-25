@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-FAST STORE — TRẠM SINH HỌC, Stage 8 (HS-first)
+FAST STORE — TRẠM SINH HỌC, Stage 6 (HS-first)
 
 Mục tiêu:
 - Học sinh chỉ đọc đúng hồ sơ của mình và đúng lịch sử của mình.
 - Khi nộp bài chỉ ghi 1 row vào student_attempts, không tải/ghi lại toàn bộ lịch sử.
 - Ngân hàng HS đọc từ questions_v2 (1 câu = 1 row) khi V2 khớp kho cũ.
+- questions_v2 CHỈ là Ngân hàng chung; tuyệt đối không trộn Ngân hàng tốt nghiệp vào đây.
+- Ngân hàng tốt nghiệp được app.py đọc từ kho riêng và chỉ ghép tạm khi HS chọn Luyện tốt nghiệp THPT.
 - Có fallback an toàn về dữ liệu local/kho cũ ở app.py nếu V2 chưa sẵn sàng.
 - Không xóa/migration dữ liệu.
 """
@@ -24,10 +26,10 @@ from data_store import _supabase_client, _doc_json_local, _luu_json_local
 _LOCK = threading.RLock()
 _CACHE = {}
 
-_STUDENT_TTL = 300.0
-_ATTEMPT_TTL = 30.0
-_CLASS_TTL = 60.0
-_QUESTIONS_TTL = 180.0
+_STUDENT_TTL = 60.0
+_ATTEMPT_TTL = 12.0
+_CLASS_TTL = 20.0
+_QUESTIONS_TTL = 90.0
 
 
 def _norm_sid(value):
@@ -50,29 +52,6 @@ def _cache_get(key, ttl):
 def _cache_set(key, value):
     with _LOCK:
         _CACHE[key] = (time.monotonic(), copy.deepcopy(value))
-
-
-def _cache_get_readonly(key, ttl):
-    """Đọc cache chỉ-đọc, không deepcopy khối lớn.
-
-    Chỉ dùng cho ngân hàng câu hỏi mà UI không được phép sửa trực tiếp.
-    Giảm đáng kể CPU/RAM khi Streamlit rerun/fragment rerun.
-    """
-    now = time.monotonic()
-    with _LOCK:
-        item = _CACHE.get(key)
-        if not item:
-            return None, False
-        ts, value = item
-        if now - ts > ttl:
-            _CACHE.pop(key, None)
-            return None, False
-        return value, True
-
-
-def _cache_set_readonly(key, value):
-    with _LOCK:
-        _CACHE[key] = (time.monotonic(), value)
 
 
 def _cache_drop_prefix(prefix):
@@ -374,7 +353,7 @@ def questions_v2_count():
     if client is None:
         return None
     key = "qv2_count"
-    cached, ok = _cache_get(key, 120.0)
+    cached, ok = _cache_get(key, 30.0)
     if ok:
         return cached
     try:
@@ -406,7 +385,7 @@ def get_all_questions_v2(expected_count=None):
     """Đọc kho V2 một lần/90 giây; chỉ dùng nếu số câu khớp kho legacy khi expected_count được truyền."""
     exp = None if expected_count is None else int(expected_count or 0)
     key = f"qv2_all:{exp}"
-    cached, ok = _cache_get_readonly(key, _QUESTIONS_TTL)
+    cached, ok = _cache_get(key, _QUESTIONS_TTL)
     if ok:
         return cached
 
@@ -433,6 +412,10 @@ def get_all_questions_v2(expected_count=None):
             for row in rows:
                 q = dict(row.get("data") or {})
                 q.setdefault("id", str(row.get("question_id", "") or ""))
+                # Phòng thủ kiến trúc: questions_v2 là kho chung, không trả record
+                # tốt nghiệp nếu dữ liệu cũ từng vô tình bị trộn vào bảng này.
+                if _question_is_grad_only(q):
+                    continue
                 out.append(q)
             if len(rows) < 1000:
                 break
@@ -442,214 +425,21 @@ def get_all_questions_v2(expected_count=None):
 
     if exp is not None and exp > 0 and len(out) != exp:
         return None
-    _cache_set_readonly(key, out)
+    _cache_set(key, out)
     return out
 
-
-
-def _grade_variants(value):
-    """Các biến thể thường gặp của khối để tương thích dữ liệu cũ."""
-    raw = str(value or "").strip()
-    if not raw:
-        return []
-    m = re.search(r"(?:khối|khoi|lớp|lop)?\s*(10|11|12)", raw, flags=re.IGNORECASE)
-    if not m:
-        return [raw]
-    n = m.group(1)
-    vals = [f"Khối {n}", n, f"Lớp {n}"]
-    if raw not in vals:
-        vals.insert(0, raw)
-    # giữ thứ tự, bỏ trùng
-    return list(dict.fromkeys(vals))
-
-
-
-def get_question_index_v2_by_scope(
-    khoi="",
-    chuong="",
-    bai="",
-    yccd="",
-    muc_do="",
-    dang_cau="",
-):
-    """Đọc CHỈ MỤC nhẹ của questions_v2, không kéo cột data JSON lớn.
-
-    Dùng cho màn hình chọn bài/chương. Chỉ khi HS đã chọn đúng phạm vi
-    app mới gọi get_questions_v2_by_scope() để lấy nội dung câu đầy đủ.
-    """
-    khoi_vals = _grade_variants(khoi)
-    cache_key = (
-        "qv2_index:",
-        tuple(khoi_vals),
-        str(chuong or "").strip(),
-        str(bai or "").strip(),
-        str(yccd or "").strip(),
-        str(muc_do or "").strip(),
-        str(dang_cau or "").strip(),
-    )
-    cached, ok = _cache_get_readonly(cache_key, 300.0)
-    if ok:
-        return cached
-
-    client = _supabase_client()
-    if client is None:
-        return None
-
-    out = []
-    start = 0
-    page_size = 1000
-    try:
-        while True:
-            query = client.table("questions_v2").select(
-                "question_id,khoi,chuong,bai,yccd,muc_do,dang_cau"
-            )
-            if khoi_vals:
-                query = query.in_("khoi", khoi_vals)
-            if str(chuong or "").strip():
-                query = query.eq("chuong", str(chuong).strip())
-            if str(bai or "").strip():
-                query = query.eq("bai", str(bai).strip())
-            if str(yccd or "").strip():
-                query = query.eq("yccd", str(yccd).strip())
-            if str(muc_do or "").strip():
-                query = query.eq("muc_do", str(muc_do).strip())
-            if str(dang_cau or "").strip():
-                query = query.eq("dang_cau", str(dang_cau).strip())
-
-            rr = query.range(start, start + page_size - 1).execute()
-            rows = getattr(rr, "data", None) or []
-            for row in rows:
-                out.append({
-                    "id": str(row.get("question_id", "") or ""),
-                    "khoi": str(row.get("khoi", "") or ""),
-                    "chuong": str(row.get("chuong", "") or ""),
-                    "bai": str(row.get("bai", "") or ""),
-                    "yccd": str(row.get("yccd", "") or ""),
-                    "muc_do": str(row.get("muc_do", "") or ""),
-                    "dang_cau": str(row.get("dang_cau", "") or ""),
-                    # Các giá trị dưới đây giúp các hàm lọc cũ vẫn dùng được.
-                    "trang_thai": "Đã duyệt",
-                    "duoc_dung_luyen_hs": True,
-                    "_chi_muc_only": True,
-                })
-            if len(rows) < page_size:
-                break
-            start += page_size
-    except Exception:
-        return None
-
-    _cache_set_readonly(cache_key, out)
-    return out
-
-def get_questions_v2_by_scope(
-    khoi="",
-    chuong="",
-    bai="",
-    yccd="",
-    muc_do="",
-    dang_cau="",
-    limit=None,
-    expected_total=None,
-):
-    """Đọc đúng PHẠM VI cần thiết từ questions_v2, không tải toàn bộ kho.
-
-    `expected_total` chỉ dùng để xác nhận bảng V2 đang khớp tổng số câu legacy.
-    Nếu V2 chưa đồng bộ đủ, trả None để app fallback kho cũ an toàn.
-    """
-    exp = None if expected_total is None else int(expected_total or 0)
-
-    # Kiểm tra nhanh tính toàn vẹn của kho V2 trước khi dùng đường query nhỏ.
-    if exp is not None and exp > 0:
-        count = questions_v2_count()
-        if count is None or count != exp:
-            return None
-
-    khoi_vals = _grade_variants(khoi)
-    cache_key = (
-        "qv2_scope:",
-        tuple(khoi_vals),
-        str(chuong or "").strip(),
-        str(bai or "").strip(),
-        str(yccd or "").strip(),
-        str(muc_do or "").strip(),
-        str(dang_cau or "").strip(),
-        None if limit is None else int(limit),
-        exp,
-    )
-    cached, ok = _cache_get_readonly(cache_key, _QUESTIONS_TTL)
-    if ok:
-        return cached
-
-    client = _supabase_client()
-    if client is None:
-        return None
-
-    out = []
-    start = 0
-    page_size = 1000
-    max_rows = None if limit is None else max(0, int(limit))
-
-    try:
-        while True:
-            query = client.table("questions_v2").select("question_id,data")
-            if khoi_vals:
-                query = query.in_("khoi", khoi_vals)
-            if str(chuong or "").strip():
-                query = query.eq("chuong", str(chuong).strip())
-            if str(bai or "").strip():
-                query = query.eq("bai", str(bai).strip())
-            if str(yccd or "").strip():
-                query = query.eq("yccd", str(yccd).strip())
-            if str(muc_do or "").strip():
-                query = query.eq("muc_do", str(muc_do).strip())
-            if str(dang_cau or "").strip():
-                query = query.eq("dang_cau", str(dang_cau).strip())
-
-            end = start + page_size - 1
-            if max_rows is not None:
-                if len(out) >= max_rows:
-                    break
-                end = min(end, start + (max_rows - len(out)) - 1)
-            rr = query.range(start, end).execute()
-            rows = getattr(rr, "data", None) or []
-            for row in rows:
-                q = dict(row.get("data") or {})
-                q.setdefault("id", str(row.get("question_id", "") or ""))
-                out.append(q)
-                if max_rows is not None and len(out) >= max_rows:
-                    break
-            if len(rows) < (end - start + 1):
-                break
-            if max_rows is not None and len(out) >= max_rows:
-                break
-            start = end + 1
-    except Exception:
-        return None
-
-    _cache_set_readonly(cache_key, out)
-    return out
 
 def get_questions_v2_by_ids(question_ids):
     ids = [str(x or "").strip() for x in question_ids if str(x or "").strip()]
     if not ids:
         return []
-
-    # Cùng một số câu lịch sử cũ có thể được hỏi lại nhiều lần khi HS đổi màn hình.
-    # Chuẩn hóa thứ tự để cache trúng dù đầu vào khác thứ tự.
-    ids_unique = list(dict.fromkeys(ids))
-    cache_ids = tuple(sorted(ids_unique))
-    key = ("qv2_ids", cache_ids)
-    cached, ok = _cache_get_readonly(key, _QUESTIONS_TTL)
-    if ok:
-        return cached
-
     client = _supabase_client()
     if client is None:
         return []
-    by_id = {}
+    out = []
     try:
-        for start in range(0, len(ids_unique), 200):
-            batch = ids_unique[start:start + 200]
+        for start in range(0, len(ids), 100):
+            batch = ids[start:start + 100]
             rr = (
                 client.table("questions_v2")
                 .select("question_id,data")
@@ -658,13 +448,347 @@ def get_questions_v2_by_ids(question_ids):
             )
             for row in (getattr(rr, "data", None) or []):
                 q = dict(row.get("data") or {})
-                qid = str(row.get("question_id", "") or "")
-                q.setdefault("id", qid)
-                by_id[qid] = q
+                q.setdefault("id", str(row.get("question_id", "") or ""))
+                out.append(q)
     except Exception:
         return []
-
-    # Giữ thứ tự đầu vào để caller không thay đổi hành vi.
-    out = [by_id[x] for x in ids_unique if x in by_id]
-    _cache_set_readonly(key, out)
     return out
+
+# ==========================================================
+# QUESTIONS V2 — TRUY VẤN THEO PHẠM VI
+# QUY TẮC KIẾN TRÚC:
+# - questions_v2 chỉ chứa/đọc NGÂN HÀNG CHUNG.
+# - Không đọc, không ghi, không đồng bộ Ngân hàng tốt nghiệp tại đây.
+# - App chỉ ghép kho tốt nghiệp ở chế độ Luyện tốt nghiệp THPT.
+# ==========================================================
+def _norm_scope_value(value):
+    """Chuẩn hóa nhẹ chuỗi phạm vi để so khớp ổn định nhưng không đổi nhãn hiển thị."""
+    return " ".join(str(value or "").strip().split()).casefold()
+
+
+def _question_is_grad_only(q):
+    """Chặn phòng thủ nếu dữ liệu tốt nghiệp từng vô tình lọt vào questions_v2.
+
+    Dữ liệu tốt nghiệp thật của app dùng muc_dich_su_dung='tot_nghiep' và/hoặc
+    metadata nguồn đề thật. Những record này không được xem là Ngân hàng chung.
+    """
+    if not isinstance(q, dict):
+        return False
+
+    muc_dich = _norm_scope_value(q.get("muc_dich_su_dung", ""))
+    if muc_dich in {"tot_nghiep", "tốt nghiệp", "tốt nghiệp thpt", "luyen_tot_nghiep"}:
+        return True
+
+    # Chỉ coi là grad-only khi có dấu hiệu rõ ràng của kho đề thật.
+    # Không dùng riêng trường "nguon" vì câu ngân hàng chung cũng có thể ghi nguồn.
+    if str(q.get("so_cau_goc", "") or "").strip() and (
+        str(q.get("nguon_file", "") or "").strip()
+        or list(q.get("nguon_files", []) or [])
+    ):
+        return True
+
+    return False
+
+
+def _question_scopes(q):
+    """Trả các phạm vi Khối/Chương/Bài của một câu common-bank.
+
+    Tương thích cả record chuẩn (khoi/chuong/bai) và câu hạt giống cũ có
+    pham_vi_hat_giong. Không suy đoán metadata còn thiếu.
+    """
+    if not isinstance(q, dict):
+        return []
+
+    out = []
+    seen = set()
+
+    direct = {
+        "khoi": str(q.get("khoi", "") or ""),
+        "chuong": str(q.get("chuong", "") or ""),
+        "bai": str(q.get("bai", "") or ""),
+    }
+    if any(str(v).strip() for v in direct.values()):
+        key = tuple(_norm_scope_value(direct[k]) for k in ("khoi", "chuong", "bai"))
+        if key not in seen:
+            seen.add(key)
+            out.append(direct)
+
+    for pv in list(q.get("pham_vi_hat_giong", []) or []):
+        if not isinstance(pv, dict):
+            continue
+        item = {
+            "khoi": str(pv.get("khoi", "") or ""),
+            "chuong": str(pv.get("chuong", "") or ""),
+            "bai": str(pv.get("bai", "") or ""),
+        }
+        if not any(str(v).strip() for v in item.values()):
+            continue
+        key = tuple(_norm_scope_value(item[k]) for k in ("khoi", "chuong", "bai"))
+        if key not in seen:
+            seen.add(key)
+            out.append(item)
+
+    return out
+
+
+def _question_matches_scope(q, khoi="", chuong="", bai=""):
+    if _question_is_grad_only(q):
+        return False
+
+    target = {
+        "khoi": _norm_scope_value(khoi),
+        "chuong": _norm_scope_value(chuong),
+        "bai": _norm_scope_value(bai),
+    }
+
+    # Không có bộ lọc -> nhận mọi câu common-bank.
+    if not any(target.values()):
+        return True
+
+    for pv in _question_scopes(q):
+        ok = True
+        for field in ("khoi", "chuong", "bai"):
+            if target[field] and _norm_scope_value(pv.get(field, "")) != target[field]:
+                ok = False
+                break
+        if ok:
+            return True
+    return False
+
+
+def _rows_to_questions_v2(rows):
+    out = []
+    for row in rows or []:
+        q = dict((row or {}).get("data") or {})
+        q.setdefault("id", str((row or {}).get("question_id", "") or ""))
+        if _question_is_grad_only(q):
+            continue
+        out.append(q)
+    return out
+
+
+def _fetch_questions_v2_direct_scope(khoi="", chuong="", bai=""):
+    """Thử lọc JSONB ngay trên Supabase; lỗi/không hỗ trợ thì trả None để fallback.
+
+    PostgREST hỗ trợ đường dẫn JSON `data->>field`. Vì một số deployment cũ có
+    schema/policy khác, hàm này tuyệt đối không phải điểm lỗi duy nhất.
+    """
+    client = _supabase_client()
+    if client is None:
+        return None
+
+    # Chỉ dùng direct query cho record chuẩn. Câu có pham_vi_hat_giong sẽ được
+    # tìm thấy ở fallback toàn kho nếu direct query không đủ.
+    filters = {
+        "khoi": str(khoi or "").strip(),
+        "chuong": str(chuong or "").strip(),
+        "bai": str(bai or "").strip(),
+    }
+
+    try:
+        out = []
+        start = 0
+        while True:
+            query = client.table("questions_v2").select("question_id,data")
+            for field, value in filters.items():
+                if value:
+                    query = query.eq(f"data->>{field}", value)
+            rr = query.range(start, start + 999).execute()
+            rows = getattr(rr, "data", None) or []
+            out.extend(_rows_to_questions_v2(rows))
+            if len(rows) < 1000:
+                break
+            start += 1000
+        return out
+    except Exception:
+        return None
+
+
+def get_questions_v2_by_scope(khoi="", chuong="", bai="", expected_total=None):
+    """Đọc câu NGÂN HÀNG CHUNG theo Khối/Chương/Bài.
+
+    `expected_total` nếu có chỉ dùng để xác minh tổng số row V2 so với kho chung
+    legacy; KHÔNG so số câu của phạm vi với tổng kho.
+    """
+    exp = None if expected_total is None else int(expected_total or 0)
+    key = "qv2_scope:" + "|".join([
+        _norm_scope_value(khoi),
+        _norm_scope_value(chuong),
+        _norm_scope_value(bai),
+        str(exp),
+    ])
+    cached, ok = _cache_get(key, _QUESTIONS_TTL)
+    if ok:
+        return cached
+
+    if exp is not None and exp > 0:
+        count = questions_v2_count()
+        if count is None or count != exp:
+            return None
+
+    # Thử truy vấn hẹp trước cho tốc độ.
+    direct = _fetch_questions_v2_direct_scope(khoi=khoi, chuong=chuong, bai=bai)
+
+    # Direct query có thể trả rỗng vì dữ liệu cũ chỉ có pham_vi_hat_giong hoặc
+    # nhãn chưa khớp tuyệt đối. Khi đó fallback một lần qua get_all_questions_v2.
+    if direct:
+        result = [
+            q for q in direct
+            if _question_matches_scope(q, khoi=khoi, chuong=chuong, bai=bai)
+        ]
+        _cache_set(key, result)
+        return result
+
+    all_q = get_all_questions_v2(expected_count=exp)
+    if all_q is None:
+        return None
+
+    result = [
+        q for q in all_q
+        if _question_matches_scope(q, khoi=khoi, chuong=chuong, bai=bai)
+    ]
+    _cache_set(key, result)
+    return result
+
+
+def get_question_index_v2_by_scope(khoi="", chuong="", bai="", expected_total=None):
+    """Trả index nhẹ của NGÂN HÀNG CHUNG theo phạm vi.
+
+    Giữ hàm này để tương thích app.py Stage 10. Index không chứa nội dung dài và
+    tuyệt đối không chứa câu từ Ngân hàng tốt nghiệp.
+    """
+    key = "qv2_index:" + "|".join([
+        _norm_scope_value(khoi),
+        _norm_scope_value(chuong),
+        _norm_scope_value(bai),
+        str(None if expected_total is None else int(expected_total or 0)),
+    ])
+    cached, ok = _cache_get(key, _QUESTIONS_TTL)
+    if ok:
+        return cached
+
+    questions = get_questions_v2_by_scope(
+        khoi=khoi,
+        chuong=chuong,
+        bai=bai,
+        expected_total=expected_total,
+    )
+    if questions is None:
+        return None
+
+    fields = (
+        "id", "khoi", "chuong", "bai", "yccd", "muc_do", "dang_cau",
+        "thanh_phan_nang_luc", "chi_bao", "trang_thai", "duoc_dung_luyen_hs",
+    )
+    out = []
+    for q in questions:
+        item = {field: q.get(field, "") for field in fields}
+        item["id"] = str(item.get("id", "") or "")
+        # Giữ pham_vi_hat_giong để menu cũ vẫn nhận diện câu đa phạm vi.
+        if q.get("pham_vi_hat_giong"):
+            item["pham_vi_hat_giong"] = copy.deepcopy(q.get("pham_vi_hat_giong"))
+        out.append(item)
+
+    _cache_set(key, out)
+    return out
+
+
+
+# ==========================================================
+# ĐƯỜNG NHANH RIÊNG CHO LUYỆN TỐT NGHIỆP
+# questions_v2 vẫn CHỈ là NGÂN HÀNG CHUNG.
+# Chỉ lấy một tập ứng viên nhỏ Khối 12 để bổ sung tối đa vài câu
+# cho đề tốt nghiệp, tránh tải cả kho chung khi HS vừa mở chế độ.
+# ==========================================================
+def get_grad_supplement_candidates_v2(khoi="Khối 12", limit_per_type=48):
+    """Lấy ứng viên nhỏ từ NGÂN HÀNG CHUNG cho đề tốt nghiệp.
+
+    - Không đọc/ghi Ngân hàng tốt nghiệp.
+    - Ưu tiên lọc trực tiếp trên Supabase theo Khối + Dạng câu.
+    - Chỉ khi deployment cũ không hỗ trợ lọc JSONB mới fallback về kho Khối 12.
+    - Cache 5 phút vì đây chỉ là nguồn bổ sung, không cần tải lại ở mỗi rerun.
+    """
+    khoi = str(khoi or "Khối 12").strip() or "Khối 12"
+    try:
+        limit_per_type = max(8, min(int(limit_per_type or 48), 120))
+    except Exception:
+        limit_per_type = 48
+
+    key = f"qv2_grad_candidates:{_norm_scope_value(khoi)}:{limit_per_type}"
+    cached, ok = _cache_get(key, 300.0)
+    if ok:
+        return cached
+
+    dang_list = [
+        "Trắc nghiệm 4 lựa chọn",
+        "Đúng / Sai",
+        "Trả lời ngắn",
+    ]
+    client = _supabase_client()
+    out = []
+
+    if client is not None:
+        direct_ok = True
+        try:
+            for dang in dang_list:
+                rr = (
+                    client.table("questions_v2")
+                    .select("question_id,data")
+                    .eq("data->>khoi", khoi)
+                    .eq("data->>dang_cau", dang)
+                    .range(0, limit_per_type - 1)
+                    .execute()
+                )
+                rows = getattr(rr, "data", None) or []
+                out.extend(_rows_to_questions_v2(rows))
+        except Exception:
+            direct_ok = False
+            out = []
+
+        if direct_ok and out:
+            # Lọc thêm ở Python để tương thích dữ liệu cũ / chống record lẫn kho TN.
+            result = []
+            seen = set()
+            for q in out:
+                qid = str(q.get("id", "") or "").strip()
+                if qid and qid in seen:
+                    continue
+                if qid:
+                    seen.add(qid)
+                if _question_is_grad_only(q):
+                    continue
+                if not _question_matches_scope(q, khoi=khoi):
+                    continue
+                if q.get("dang_cau") not in dang_list:
+                    continue
+                if q.get("trang_thai", "Đã duyệt") in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}:
+                    continue
+                if q.get("duoc_dung_luyen_hs", True) is False:
+                    continue
+                result.append(q)
+            _cache_set(key, result)
+            return result
+
+    # Fallback an toàn cho Supabase/PostgREST cũ. Có thể nặng hơn nhưng chỉ xảy ra
+    # khi direct JSONB filter không hoạt động.
+    all_scope = get_questions_v2_by_scope(khoi=khoi, expected_total=None)
+    if all_scope is None:
+        return []
+
+    result = []
+    counts = {d: 0 for d in dang_list}
+    for q in all_scope:
+        dang = q.get("dang_cau")
+        if dang not in counts or counts[dang] >= limit_per_type:
+            continue
+        if q.get("trang_thai", "Đã duyệt") in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}:
+            continue
+        if q.get("duoc_dung_luyen_hs", True) is False:
+            continue
+        result.append(q)
+        counts[dang] += 1
+        if all(counts[d] >= limit_per_type for d in dang_list):
+            break
+
+    _cache_set(key, result)
+    return result
