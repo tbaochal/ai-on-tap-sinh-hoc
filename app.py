@@ -762,6 +762,19 @@ def doc_pool_hs_theo_pham_vi(khoi="", chuong="", bai=""):
     return data
 
 
+def _nhan_kien_thuc_hs(value):
+    """Chỉ làm sạch nhãn HIỂN THỊ; không đổi dữ liệu/YCCĐ lưu trong hệ thống."""
+    s = str(value or "").strip()
+    if s.startswith("Kiến thức trọng tâm"):
+        s = re.sub(
+            r"(•\s*)Bài\s+\d+\s*[.:]\s*",
+            r"\1",
+            s,
+            flags=re.IGNORECASE
+        )
+    return s
+
+
 # ==========================================================
 # GIAO DIỆN & HỒ SƠ GIÁO VIÊN
 # ==========================================================
@@ -12451,29 +12464,86 @@ def tao_de_giao_vien():
 
     c3, c4, c5 = st.columns(3)
 
+    ds_muc_ma_tran = [
+        "Tất cả",
+        "Nhận biết",
+        "Thông hiểu",
+        "Vận dụng"
+    ]
+    ds_nl_ma_tran = ["Tất cả"] + THANH_PHAN_NANG_LUC
+
+    def _dong_bo_muc_do_nang_luc_theo_yccd_ma_tran():
+        """
+        Khi GV đổi YCCĐ ở phần Tạo ma trận:
+        - tự đưa Mức độ về mức hệ thống xác định cho chính YCCĐ đó;
+        - tự đưa Thành phần năng lực về thành phần phù hợp với YCCĐ;
+        - GV vẫn có thể chỉnh lại thủ công sau khi hệ thống đã gợi ý.
+        """
+        yccd_chon = str(
+            st.session_state.get("exam_spec_yccd", "Tất cả") or "Tất cả"
+        ).strip()
+
+        if not yccd_chon or yccd_chon == "Tất cả":
+            st.session_state["exam_spec_level"] = "Tất cả"
+            st.session_state["exam_spec_comp"] = "Tất cả"
+            return
+
+        muc_goi_y = chuan_hoa_muc_do(
+            xac_dinh_muc_do(yccd_chon)
+        )
+        if muc_goi_y not in ds_muc_ma_tran:
+            muc_goi_y = "Thông hiểu"
+
+        # Ở bước này chỉ căn cứ YCCĐ + mức độ, không căn cứ dạng câu hỏi,
+        # để tránh việc dạng câu làm lệch thành phần năng lực.
+        nl_goi_y = goi_y_thanh_phan_nang_luc(
+            yccd_chon,
+            muc_goi_y,
+            None
+        )
+        if nl_goi_y not in THANH_PHAN_NANG_LUC:
+            nl_goi_y = "Nhận thức sinh học"
+
+        st.session_state["exam_spec_level"] = muc_goi_y
+        st.session_state["exam_spec_comp"] = nl_goi_y
+
     with c3:
         yccd = st.selectbox(
             "YCCĐ",
             ["Tất cả"] + ds_yccd,
-            key="exam_spec_yccd"
+            key="exam_spec_yccd",
+            on_change=_dong_bo_muc_do_nang_luc_theo_yccd_ma_tran
         )
+
+    # Bảo đảm lần đầu mở một YCCĐ cụ thể cũng có giá trị hợp lệ.
+    if yccd != "Tất cả":
+        if st.session_state.get("exam_spec_level") not in ds_muc_ma_tran:
+            st.session_state["exam_spec_level"] = chuan_hoa_muc_do(
+                xac_dinh_muc_do(yccd)
+            )
+        if st.session_state.get("exam_spec_comp") not in ds_nl_ma_tran:
+            muc_tam = st.session_state.get("exam_spec_level", "Thông hiểu")
+            nl_tam = goi_y_thanh_phan_nang_luc(
+                yccd,
+                muc_tam,
+                None
+            )
+            st.session_state["exam_spec_comp"] = (
+                nl_tam if nl_tam in THANH_PHAN_NANG_LUC
+                else "Nhận thức sinh học"
+            )
 
     with c4:
         muc = st.selectbox(
             "Mức độ",
-            [
-                "Tất cả",
-                "Nhận biết",
-                "Thông hiểu",
-                "Vận dụng"
-            ],
+            ds_muc_ma_tran,
             key="exam_spec_level"
         )
 
     with c5:
         nl = st.selectbox(
             "Thành phần năng lực",
-            ["Tất cả"] + THANH_PHAN_NANG_LUC,
+            ds_nl_ma_tran,
             key="exam_spec_comp"
         )
 
@@ -23826,7 +23896,7 @@ def tao_nhan_xet_quy_tac(profile):
         )
 
         parts.append(
-            f"{x.get('yccd', '')} "
+            f"{_nhan_kien_thuc_hs(x.get('yccd', ''))} "
             f"({x.get('muc_do', '')}, {ti_le}% đúng)"
         )
 
@@ -24568,7 +24638,7 @@ def hien_thi_ke_hoach_hom_nay(profile, bank):
             expanded=False
         ):
             for j, x in enumerate(con_lai, start=2):
-                st.markdown(f"**{j}. {x.get('yccd', '')}**")
+                st.markdown(f"**{j}. {_nhan_kien_thuc_hs(x.get('yccd', ''))}**")
                 st.caption(
                     f"{x.get('nang_luc', '')} • "
                     f"{x.get('muc_do', '')} • "
@@ -25276,9 +25346,7 @@ def hoc_sinh():
                 ten_luot = "Luyện theo gợi ý hôm nay"
 
                 st.success(
-                    "App ưu tiên **YCCĐ/kiến thức đang yếu**, câu chưa gặp và câu từng sai. "
-                    "Thành phần năng lực chỉ dùng để điều tiết nhẹ, **không dùng để loại cứng câu**. "
-                    "Vì vậy câu trong ngân hàng tốt nghiệp vẫn được dùng để ôn nếu phù hợp nội dung."
+                    "App ưu tiên **YCCĐ/kiến thức đang yếu**, câu chưa gặp và câu từng sai."
                 )
 
         # --------------------------------------------------
@@ -25873,7 +25941,7 @@ def hoc_sinh():
                         start=1
                     ):
                         st.write(
-                            f"**{idx_w}.** {x.get('yccd', '')}"
+                            f"**{idx_w}.** {_nhan_kien_thuc_hs(x.get('yccd', ''))}"
                         )
                         st.caption(
                             f"Mức độ: {x.get('muc_do', '')} • "
@@ -27094,18 +27162,6 @@ def hoc_sinh():
             )
         ]
 
-        def _nhan_kien_thuc_hs(value):
-            """Chỉ làm sạch nhãn HIỂN THỊ; không đổi dữ liệu/YCCĐ lưu trong hệ thống."""
-            s = str(value or "").strip()
-            if s.startswith("Kiến thức trọng tâm"):
-                s = re.sub(
-                    r"(•\s*)Bài\s+\d+\s*[.:]\s*",
-                    r"\1",
-                    s,
-                    flags=re.IGNORECASE
-                )
-            return s
-
         if weak_chua_dat:
             st.markdown(
                 "### 📚 Kiến thức nền cần củng cố"
@@ -27118,7 +27174,7 @@ def hoc_sinh():
             yccd_map = {}
 
             for x in weak_chua_dat:
-                ten = str(x.get("yccd", "")).strip()
+                ten = _nhan_kien_thuc_hs(x.get("yccd", ""))
 
                 if not ten:
                     continue
@@ -27147,7 +27203,7 @@ def hoc_sinh():
                 start=1
             ):
                 st.markdown(
-                    f"**{i_w}. {x.get('yccd', '')}**"
+                    f"**{i_w}. {_nhan_kien_thuc_hs(x.get('yccd', ''))}**"
                 )
 
                 st.caption(
