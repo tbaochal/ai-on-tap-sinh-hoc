@@ -93,20 +93,6 @@ _SUPABASE_CLIENT = None
 _SUPABASE_TRIED = False
 
 
-def _read_secret_or_env(name):
-    """Đọc cấu hình từ Streamlit secrets; nếu không có thì đọc Environment Variables."""
-    value = ""
-    try:
-        value = str(st.secrets.get(name, "") or "").strip()
-    except Exception:
-        value = ""
-
-    if not value:
-        value = str(os.environ.get(name, "") or "").strip()
-
-    return value
-
-
 def _supabase_client():
     global _SUPABASE_CLIENT, _SUPABASE_TRIED
 
@@ -119,16 +105,10 @@ def _supabase_client():
         return None
 
     try:
-        url = _read_secret_or_env("SUPABASE_URL")
-        key = (
-            _read_secret_or_env("SUPABASE_SECRET_KEY")
-            or _read_secret_or_env("SUPABASE_SERVICE_ROLE_KEY")
-            or _read_secret_or_env("SUPABASE_KEY")
-        )
-
+        url = str(st.secrets.get("SUPABASE_URL", "") or "").strip()
+        key = str(st.secrets.get("SUPABASE_SECRET_KEY", "") or "").strip()
         if not url or not key:
             return None
-
         _SUPABASE_CLIENT = create_client(url, key)
     except Exception:
         _SUPABASE_CLIENT = None
