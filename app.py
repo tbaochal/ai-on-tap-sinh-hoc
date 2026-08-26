@@ -14,6 +14,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import unicodedata
 import base64
+import zipfile
 from datetime import datetime, timezone, timedelta
 from google import genai
 from google.genai import types
@@ -23166,6 +23167,414 @@ def quan_ly_diem_on_kiem_tra():
         else:
             st.success("Học sinh này chưa có điểm yếu nổi bật trong các bài đang lọc.")
 
+
+# ==========================================================
+# DỌN DỮ LIỆU CŨ ĐỂ NHẬP LẠI CHÍNH XÁC
+# - Xóa toàn bộ Ngân hàng hạt giống cũ.
+# - Xóa toàn bộ Ngân hàng tốt nghiệp cũ.
+# - Xóa các câu trong Ngân hàng chung có nguồn từ hạt giống
+#   hoặc là bản sao câu tốt nghiệp từng lọt vào kho chung.
+# - Xóa đúng các câu tương ứng trong questions_v2.
+# - Xóa bộ nhớ phân loại phạm vi tốt nghiệp cũ.
+# - KHÔNG xóa danh sách HS và KHÔNG xóa lịch sử làm bài HS.
+# ==========================================================
+def _reset_old_data_ids(ds):
+    out = set()
+    for q in ds or []:
+        if not isinstance(q, dict):
+            continue
+        for key in ("id", "question_id", "legacy_id"):
+            v = str(q.get(key, "") or "").strip()
+            if v:
+                out.add(v)
+    return out
+
+
+def _reset_old_data_is_target(q):
+    """Câu cần xóa khỏi Ngân hàng chung/questions_v2."""
+    if not isinstance(q, dict):
+        return False
+    try:
+        if _main_la_cau_tu_hat_giong(q):
+            return True
+    except Exception:
+        pass
+    try:
+        if _la_ban_sao_cau_tot_nghiep_trong_ngan_hang_chung(q):
+            return True
+    except Exception:
+        pass
+
+    # Tương thích một số metadata cũ.
+    nguon_tao = " ".join(str(q.get("nguon_tao", "") or "").split()).casefold()
+    muc_dich = str(q.get("muc_dich_su_dung", "") or "").strip().casefold()
+    if "hạt giống" in nguon_tao or "hat giong" in nguon_tao:
+        return True
+    if "đề thật" in nguon_tao or "de that" in nguon_tao:
+        return True
+    if "đề thi thử" in nguon_tao or "de thi thu" in nguon_tao:
+        return True
+    if muc_dich == "tot_nghiep" and any(
+        str(q.get(k, "") or "").strip()
+        for k in ("nguon_file", "phan_goc", "so_cau_goc")
+    ):
+        return True
+    return False
+
+
+def _reset_old_data_backup_zip(seed_bank, grad_bank, main_bank, scope_memory):
+    """Tạo ZIP sao lưu cục bộ trước khi xóa; trả đường dẫn."""
+    thu_muc = os.path.join(BASE_DIR, "sao_luu_ngan_hang")
+    os.makedirs(thu_muc, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = os.path.join(
+        thu_muc,
+        f"SAO_LUU_TRUOC_KHI_XOA_DU_LIEU_CU_{stamp}.zip"
+    )
+
+    summary = {
+        "thoi_gian": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+        "so_cau_hat_giong": len(seed_bank or []),
+        "so_cau_tot_nghiep": len(grad_bank or []),
+        "so_cau_ngan_hang_chung_truoc_xoa": len(main_bank or []),
+        "so_cau_nguon_hat_giong_hoac_tot_nghiep_trong_kho_chung": sum(
+            1 for q in (main_bank or [])
+            if _reset_old_data_is_target(q)
+        ),
+        "so_mau_ghi_nho_phan_loai_tot_nghiep": len(scope_memory or []),
+        "ghi_chu": (
+            "Bản sao lưu trước khi dọn dữ liệu cũ. "
+            "Không bao gồm danh sách học sinh và lịch sử làm bài vì hai nhóm đó không bị xóa."
+        ),
+    }
+
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            "00_TOM_TAT.json",
+            json.dumps(summary, ensure_ascii=False, indent=2)
+        )
+        zf.writestr(
+            "ngan_hang_hat_giong.json",
+            json.dumps(seed_bank or [], ensure_ascii=False, indent=2)
+        )
+        zf.writestr(
+            "ngan_hang_tot_nghiep_thuc_te.json",
+            json.dumps(grad_bank or [], ensure_ascii=False, indent=2)
+        )
+        zf.writestr(
+            "ngan_hang_cau_hoi_TRUOC_XOA.json",
+            json.dumps(main_bank or [], ensure_ascii=False, indent=2)
+        )
+        zf.writestr(
+            "ghi_nho_phan_loai_pham_vi_tot_nghiep.json",
+            json.dumps(scope_memory or [], ensure_ascii=False, indent=2)
+        )
+
+    return path
+
+
+def _reset_old_data_delete_v2_by_ids(ids):
+    """
+    Xóa theo ID trong questions_v2.
+    Tự dò tên cột ID phổ biến để tương thích schema hiện tại.
+    Trả (số_lệnh_xóa, lỗi).
+    """
+    ids = sorted({str(x or "").strip() for x in (ids or []) if str(x or "").strip()})
+    if not ids:
+        return 0, ""
+
+    client = _supabase_client()
+    if client is None:
+        return 0, "Không kết nối được Supabase nên chưa thể dọn questions_v2."
+
+    try:
+        sample_res = (
+            client.table("questions_v2")
+            .select("*")
+            .limit(1)
+            .execute()
+        )
+        sample_rows = getattr(sample_res, "data", None) or []
+        sample_keys = set((sample_rows[0] or {}).keys()) if sample_rows else set()
+
+        id_col = ""
+        for candidate in ("id", "question_id", "legacy_id"):
+            if candidate in sample_keys:
+                id_col = candidate
+                break
+
+        # Nếu bảng đang rỗng thì không cần xóa gì.
+        if not sample_rows:
+            return 0, ""
+
+        if not id_col:
+            return 0, (
+                "Không xác định được cột ID của questions_v2 "
+                f"(các cột hiện có: {', '.join(sorted(sample_keys))})."
+            )
+
+        so_lenh = 0
+        chunk_size = 150
+        for start in range(0, len(ids), chunk_size):
+            chunk = ids[start:start + chunk_size]
+            (
+                client.table("questions_v2")
+                .delete()
+                .in_(id_col, chunk)
+                .execute()
+            )
+            so_lenh += 1
+
+        try:
+            _clear_fast_store_cache()
+        except Exception:
+            pass
+        return so_lenh, ""
+
+    except Exception as e:
+        return 0, str(e)
+
+
+def _reset_old_data_collect_v2_targets():
+    """
+    Đọc questions_v2 để tìm thêm câu nguồn hạt giống/tốt nghiệp
+    kể cả khi legacy JSON đã từng lệch đồng bộ.
+    """
+    ds = []
+    try:
+        raw = _fast_get_all_questions_v2(expected_count=None)
+        if isinstance(raw, list):
+            ds = raw
+    except Exception:
+        ds = []
+    return [q for q in ds if _reset_old_data_is_target(q)]
+
+
+@_safe_fragment
+def don_du_lieu_cu_de_nhap_lai():
+    st.header("🧹 DỌN DỮ LIỆU CŨ ĐỂ NHẬP LẠI")
+    st.warning(
+        "Chức năng này dùng khi muốn xây lại ngân hàng từ đầu cho thống nhất "
+        "**YCCĐ – mức độ nhận thức – thành phần năng lực – chỉ báo – nội dung câu hỏi**."
+    )
+
+    st.info(
+        "Sẽ xóa: **Ngân hàng hạt giống cũ**, **Ngân hàng tốt nghiệp cũ**, "
+        "các câu trong **Ngân hàng câu hỏi** có nguồn hạt giống hoặc là bản sao câu tốt nghiệp, "
+        "các câu tương ứng trong **questions_v2**, và bộ nhớ phân loại phạm vi tốt nghiệp cũ.\n\n"
+        "✅ **Không xóa danh sách học sinh. Không xóa lịch sử làm bài học sinh.**"
+    )
+
+    # Đọc raw để không bỏ sót bản sao tốt nghiệp từng bị ẩn khỏi doc_ngan_hang().
+    try:
+        seed_bank = doc_json_list(SEED_BANK_PATH)
+    except Exception:
+        seed_bank = []
+    try:
+        grad_bank = doc_json_list(GRAD_REAL_BANK_PATH)
+    except Exception:
+        grad_bank = []
+    try:
+        main_bank_raw = _doc_document_shared(BANK_PATH, [])
+        if not isinstance(main_bank_raw, list):
+            main_bank_raw = []
+    except Exception:
+        main_bank_raw = []
+    try:
+        scope_memory = doc_json_list(GRAD_SCOPE_MEMORY_PATH)
+    except Exception:
+        scope_memory = []
+
+    main_targets = [
+        q for q in (main_bank_raw or [])
+        if _reset_old_data_is_target(q)
+    ]
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Hạt giống sẽ xóa", len(seed_bank or []))
+    c2.metric("Tốt nghiệp sẽ xóa", len(grad_bank or []))
+    c3.metric("Kho chung sẽ xóa", len(main_targets))
+    c4.metric("Kho chung giữ lại", max(0, len(main_bank_raw or []) - len(main_targets)))
+
+    st.caption(
+        "Các câu ôn tập/kiểm tra khác trong Ngân hàng câu hỏi không có dấu vết hạt giống "
+        "và không phải bản sao câu tốt nghiệp sẽ được giữ nguyên."
+    )
+
+    st.divider()
+    st.subheader("Bước 1 — Tạo bản sao lưu")
+
+    if st.button(
+        "💾 TẠO BẢN SAO LƯU TRƯỚC KHI XÓA",
+        type="secondary",
+        use_container_width=True,
+        key="reset_old_data_backup_btn"
+    ):
+        try:
+            backup_path = _reset_old_data_backup_zip(
+                seed_bank,
+                grad_bank,
+                main_bank_raw,
+                scope_memory
+            )
+            st.session_state["_reset_old_data_backup_path"] = backup_path
+            st.session_state["_reset_old_data_backup_created_at"] = time.time()
+            st.success(
+                "Đã tạo bản sao lưu. Có thể tải ZIP xuống máy trước khi xóa."
+            )
+        except Exception as e:
+            st.error(f"Không tạo được bản sao lưu: {e}")
+
+    backup_path = str(
+        st.session_state.get("_reset_old_data_backup_path", "") or ""
+    ).strip()
+
+    if backup_path and os.path.isfile(backup_path):
+        try:
+            with open(backup_path, "rb") as f:
+                backup_bytes = f.read()
+            st.download_button(
+                "⬇️ TẢI BẢN SAO LƯU ZIP",
+                data=backup_bytes,
+                file_name=os.path.basename(backup_path),
+                mime="application/zip",
+                use_container_width=True,
+                key="reset_old_data_download_backup"
+            )
+        except Exception as e:
+            st.warning(f"Đã tạo backup nhưng chưa mở được để tải: {e}")
+    else:
+        st.caption("Chưa có bản sao lưu nên nút xóa vẫn bị khóa.")
+
+    st.divider()
+    st.subheader("Bước 2 — Xác nhận xóa")
+
+    backup_ready = bool(backup_path and os.path.isfile(backup_path))
+
+    xac_nhan = st.checkbox(
+        "Tôi xác nhận muốn xóa dữ liệu cũ nêu trên để nhập lại từ đầu.",
+        key="reset_old_data_confirm_checkbox",
+        disabled=not backup_ready
+    )
+
+    ma_xac_nhan = st.text_input(
+        "Gõ chính xác: XOA VA NHAP LAI",
+        key="reset_old_data_confirm_text",
+        disabled=not backup_ready
+    )
+
+    confirm_ok = (
+        backup_ready
+        and xac_nhan
+        and str(ma_xac_nhan or "").strip().upper() == "XOA VA NHAP LAI"
+    )
+
+    if st.button(
+        "🗑️ XÓA DỮ LIỆU CŨ ĐỂ NHẬP LẠI",
+        type="primary",
+        use_container_width=True,
+        key="reset_old_data_execute_btn",
+        disabled=not confirm_ok
+    ):
+        progress = st.progress(0)
+        status = st.empty()
+
+        # 1) Xác định toàn bộ ID cần dọn khỏi V2 trước khi thay đổi legacy docs.
+        status.info("1/5 Đang xác định các câu cũ trong questions_v2...")
+        progress.progress(10)
+
+        v2_targets = _reset_old_data_collect_v2_targets()
+        ids_v2 = _reset_old_data_ids(main_targets) | _reset_old_data_ids(v2_targets)
+
+        # 2) Dọn V2 trước. Nếu thất bại thì dừng để không tạo trạng thái lệch kho.
+        status.info("2/5 Đang xóa các câu tương ứng khỏi questions_v2...")
+        progress.progress(30)
+        _, err_v2 = _reset_old_data_delete_v2_by_ids(ids_v2)
+        if err_v2:
+            st.error(
+                "Chưa xóa dữ liệu vì không dọn được questions_v2. "
+                f"Chi tiết: {err_v2}"
+            )
+            st.stop()
+
+        # 3) Giữ lại trong kho chung chỉ những câu không phải nguồn seed/tốt nghiệp.
+        status.info("3/5 Đang làm sạch Ngân hàng câu hỏi...")
+        progress.progress(55)
+        main_bank_keep = [
+            q for q in (main_bank_raw or [])
+            if not _reset_old_data_is_target(q)
+        ]
+        if not luu_ngan_hang(main_bank_keep):
+            st.error("Không ghi được Ngân hàng câu hỏi sau khi làm sạch.")
+            st.stop()
+
+        # 4) Xóa hẳn seed + grad + memory cũ.
+        status.info("4/5 Đang xóa Ngân hàng hạt giống và Ngân hàng tốt nghiệp cũ...")
+        progress.progress(78)
+
+        ok_seed = luu_ngan_hang_hat_giong([])
+        ok_grad = luu_ngan_hang_tot_nghiep_thuc_te([])
+        ok_mem = luu_json_list(GRAD_SCOPE_MEMORY_PATH, [])
+
+        if not (ok_seed and ok_grad and ok_mem):
+            st.error(
+                "Đã dọn một phần nhưng có kho chưa ghi rỗng thành công. "
+                "Hãy kiểm tra kết nối Supabase trước khi nhập mới."
+            )
+            st.stop()
+
+        # 5) Xóa cache đọc để app thấy dữ liệu sạch ngay.
+        status.info("5/5 Đang làm mới bộ nhớ đệm...")
+        progress.progress(95)
+        _clear_shared_read_caches()
+        try:
+            _doc_ngan_hang_processed_cached.clear()
+        except Exception:
+            pass
+        try:
+            _teacher_bank_count_cached.clear()
+        except Exception:
+            pass
+        try:
+            doc_ngan_hang_tot_nghiep_thuc_te.clear()
+        except Exception:
+            pass
+        try:
+            _clear_fast_store_cache()
+        except Exception:
+            pass
+
+        for key in list(st.session_state.keys()):
+            sk = str(key)
+            if (
+                sk.startswith("_hs_bank_session_")
+                or sk.startswith("_hs_pool_scope_")
+            ):
+                st.session_state.pop(key, None)
+
+        progress.progress(100)
+        status.success("Đã dọn xong dữ liệu cũ.")
+
+        st.session_state["_reset_old_data_last_result"] = {
+            "seed_deleted": len(seed_bank or []),
+            "grad_deleted": len(grad_bank or []),
+            "main_deleted": len(main_targets),
+            "v2_target_ids": len(ids_v2),
+            "main_kept": len(main_bank_keep),
+            "backup": backup_path,
+        }
+
+        st.success(
+            f"✅ Đã xóa **{len(seed_bank or [])}** câu hạt giống, "
+            f"**{len(grad_bank or [])}** câu tốt nghiệp, "
+            f"**{len(main_targets)}** câu nguồn hạt giống/tốt nghiệp khỏi kho chung "
+            f"và dọn **{len(ids_v2)} ID** tương ứng khỏi questions_v2.\n\n"
+            f"Đã giữ lại **{len(main_bank_keep)}** câu khác trong Ngân hàng câu hỏi.\n\n"
+            "Danh sách học sinh và lịch sử làm bài **không bị xóa**."
+        )
+        st.balloons()
+
+
 def giao_vien():
     with st.sidebar:
         hien_thi_the_giao_vien_sidebar()
@@ -23180,6 +23589,7 @@ def giao_vien():
         "🧱 Xây dựng NH ôn tập / kiểm tra",
         "🎓 Xây dựng NH tốt nghiệp",
         "🏦 Ngân hàng câu hỏi",
+        "🧹 Dọn dữ liệu cũ để nhập lại",
         "🧩 Tạo ma trận",
         "👥 Quản lý học sinh",
         "🧾 Điểm ôn / kiểm tra",
@@ -23285,6 +23695,10 @@ def giao_vien():
     elif menu == "🏦 Ngân hàng câu hỏi":
 
         ngan_hang_cau_hoi()
+
+    elif menu == "🧹 Dọn dữ liệu cũ để nhập lại":
+
+        don_du_lieu_cu_de_nhap_lai()
 
     elif menu == "🧩 Tạo ma trận":
 
