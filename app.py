@@ -18427,13 +18427,24 @@ def thong_ke_hat_giong_nang_luc_chi_bao(seed_bank):
     )
     return rows
 
+def chuan_hoa_chi_bao_hs(value):
+    s = str(value or "").strip().upper()
+
+    m = re.search(r"\b(NT[1-8]|TH[1-7]|VD[1-3])\b", s)
+
+    if m:
+        return m.group(1)
+
+    return ""
 
 def tom_tat_nang_luc_chi_bao_hoc_sinh(profile):
     nl_map = {}
 
     for s in profile.get("stats", {}).values():
         nl = str(s.get("nang_luc", "")).strip() or "Chưa xác định"
-        cb_name = str(s.get("chi_bao", "")).strip()
+        cb_name = chuan_hoa_chi_bao_hs(
+            s.get("chi_bao", "")
+)
 
         item = nl_map.setdefault(
             nl,
