@@ -11900,25 +11900,46 @@ def metadata_don_vi_cau(q):
     Trả các đơn vị metadata của câu.
     Câu thường: một đơn vị.
     Đúng/Sai: 4 đơn vị a-d.
+
+    Có kèm chỉ báo để hồ sơ cá nhân hóa tra đúng YCCĐ × mức độ × năng lực × chỉ báo.
+    Đồng thời chặn cặp metadata mâu thuẫn kiểu "Nhận thức sinh học + VD2".
     """
     if q.get("dang_cau") == "Đúng / Sai":
         ds = []
         for nd in q.get("nhan_dinh_meta", []) or []:
+            nl_raw = str(nd.get("thanh_phan_nang_luc", "")).strip()
+            cb_raw = (
+                nd.get("chi_bao", "")
+                or nd.get("hanh_vi_nang_luc", "")
+                or ""
+            )
+            try:
+                nl_chuan, cb_chuan, _ = chuan_hoa_cap_nang_luc_chi_bao(
+                    nl_raw, cb_raw
+                )
+            except NameError:
+                nl_chuan, cb_chuan = nl_raw, str(cb_raw or "").strip()
+
             ds.append({
                 "yccd": str(nd.get("yccd", "")).strip(),
                 "muc_do": str(nd.get("muc_do", "")).strip(),
-                "nang_luc": str(
-                    nd.get("thanh_phan_nang_luc", "")
-                ).strip()
+                "nang_luc": nl_chuan,
+                "chi_bao": cb_chuan
             })
         return ds
+
+    nl_raw = str(q.get("thanh_phan_nang_luc", "")).strip()
+    cb_raw = q.get("chi_bao", "") or q.get("hanh_vi_nang_luc", "") or ""
+    try:
+        nl_chuan, cb_chuan, _ = chuan_hoa_cap_nang_luc_chi_bao(nl_raw, cb_raw)
+    except NameError:
+        nl_chuan, cb_chuan = nl_raw, str(cb_raw or "").strip()
 
     return [{
         "yccd": str(q.get("yccd", "")).strip(),
         "muc_do": str(q.get("muc_do", "")).strip(),
-        "nang_luc": str(
-            q.get("thanh_phan_nang_luc", "")
-        ).strip()
+        "nang_luc": nl_chuan,
+        "chi_bao": cb_chuan
     }]
 
 
@@ -16358,6 +16379,49 @@ def nang_luc_theo_ma_chi_bao(ma_chi_bao):
     return ""
 
 
+def chuan_hoa_cap_nang_luc_chi_bao(nang_luc, chi_bao):
+    """
+    Chuẩn hóa cặp thành phần năng lực - chỉ báo dùng cho KẾT QUẢ HỌC SINH.
+
+    Nguyên tắc:
+    - Thành phần năng lực đã gán cho câu/ý là mục tiêu chính, không tự ý đổi sang
+      thành phần khác chỉ vì mã chỉ báo cũ bị gán nhầm.
+    - Chỉ báo NT/TH/VD chỉ được giữ khi đúng nhóm với thành phần năng lực.
+    - Nếu lịch sử cũ có cặp mâu thuẫn (ví dụ Nhận thức sinh học + VD2),
+      vẫn tính lượt đó vào thành phần năng lực nhưng KHÔNG hiển thị VD2 dưới NT.
+    - Nếu thiếu thành phần năng lực nhưng có mã chỉ báo chuẩn, có thể suy nhóm từ mã.
+    """
+    nl = " ".join(str(nang_luc or "").strip().split())
+    cb = str(chi_bao or "").strip().upper()
+
+    # Chuẩn hóa một vài biến thể tên thường gặp trong dữ liệu cũ.
+    nl_cf = nl.casefold()
+    if "nhận thức" in nl_cf:
+        nl = "Nhận thức sinh học"
+    elif "tìm hiểu" in nl_cf or "thế giới sống" in nl_cf:
+        nl = "Tìm hiểu thế giới sống"
+    elif "vận dụng" in nl_cf:
+        nl = "Vận dụng kiến thức, kĩ năng đã học"
+
+    ma_hop_le = bool(re.fullmatch(r"(NT[1-8]|TH[1-7]|VD[1-3])", cb))
+    if not ma_hop_le:
+        return nl, "", False
+
+    nl_theo_ma = nang_luc_theo_ma_chi_bao(cb)
+
+    # Có năng lực mục tiêu rõ ràng: chỉ giữ chỉ báo nếu cùng nhóm.
+    if nl in THANH_PHAN_NANG_LUC:
+        if nl_theo_ma == nl:
+            return nl, cb, False
+        return nl, "", True
+
+    # Thiếu năng lực nhưng có mã chuẩn: phục hồi nhóm từ tiền tố mã.
+    if nl_theo_ma:
+        return nl_theo_ma, cb, False
+
+    return nl, "", False
+
+
 def noi_dung_de_phan_loai_cau(q):
     """Ghép phần thể hiện nhiệm vụ HS phải làm để suy chỉ báo."""
     parts = [
@@ -18432,8 +18496,16 @@ def tom_tat_nang_luc_chi_bao_hoc_sinh(profile):
     nl_map = {}
 
     for s in profile.get("stats", {}).values():
-        nl = str(s.get("nang_luc", "")).strip() or "Chưa xác định"
-        cb_name = str(s.get("chi_bao", "")).strip()
+        nl_raw = str(s.get("nang_luc", "")).strip()
+        cb_raw = str(s.get("chi_bao", "")).strip()
+
+        # Lớp bảo vệ cuối ở màn hình kết quả HS:
+        # không bao giờ để VD* nằm dưới Nhận thức, TH* nằm dưới Vận dụng, ...
+        nl, cb_name, _ = chuan_hoa_cap_nang_luc_chi_bao(
+            nl_raw,
+            cb_raw
+        )
+        nl = nl or "Chưa xác định"
 
         item = nl_map.setdefault(
             nl,
@@ -23272,19 +23344,49 @@ def tao_ho_so_tu_lich_su(hoc_sinh_id, lich_su=None):
             for unit in item.get("don_vi_danh_gia", []) or []:
                 unit = dict(unit or {})
                 ma_cb = str(unit.get("chi_bao", "") or "").strip().upper()
+
+                # Lịch sử cũ có thể thiếu chỉ báo. Chỉ khi thiếu mới thử phục hồi từ snapshot.
                 if not re.fullmatch(r"(NT[1-8]|TH[1-7]|VD[1-3])", ma_cb):
                     q_ref = cau_theo_id.get(cau_id, {})
                     try:
                         q_ref = gan_chi_bao_chuan_cho_cau(q_ref) if q_ref else {}
                     except Exception:
                         q_ref = q_ref or {}
-                    ma_cb = str(q_ref.get("chi_bao", "") or "").strip().upper()
-                    if ma_cb:
-                        unit["chi_bao"] = ma_cb
-                        try:
-                            unit["nang_luc"] = nang_luc_theo_ma_chi_bao(ma_cb) or unit.get("nang_luc", "")
-                        except Exception:
-                            pass
+
+                    # Với Đúng/Sai, ưu tiên tìm đúng ý có cùng YCCĐ/mức độ/năng lực,
+                    # tránh lấy chỉ báo cấp câu rồi gán cho cả 4 ý.
+                    cb_phuc_hoi = ""
+                    if q_ref.get("dang_cau") == "Đúng / Sai":
+                        best_score = -1
+                        for nd in list(q_ref.get("nhan_dinh_meta", []) or []):
+                            score = 0
+                            if str(unit.get("yccd", "")).strip() and str(nd.get("yccd", "")).strip() == str(unit.get("yccd", "")).strip():
+                                score += 8
+                            if str(unit.get("muc_do", "")).strip() and str(nd.get("muc_do", "")).strip() == str(unit.get("muc_do", "")).strip():
+                                score += 3
+                            if str(unit.get("nang_luc", "")).strip() and str(nd.get("thanh_phan_nang_luc", "")).strip() == str(unit.get("nang_luc", "")).strip():
+                                score += 4
+                            cb_nd = str(nd.get("chi_bao", "") or "").strip().upper()
+                            if re.fullmatch(r"(NT[1-8]|TH[1-7]|VD[1-3])", cb_nd) and score > best_score:
+                                best_score = score
+                                cb_phuc_hoi = cb_nd
+                    else:
+                        cb_phuc_hoi = str(q_ref.get("chi_bao", "") or "").strip().upper()
+
+                    if cb_phuc_hoi:
+                        unit["chi_bao"] = cb_phuc_hoi
+
+                # Quan trọng: cặp năng lực - chỉ báo phải nhất quán.
+                # Nếu dữ liệu lịch sử có "Nhận thức sinh học + VD2", giữ lượt đánh giá
+                # ở Nhận thức nhưng bỏ mã VD2 khỏi thống kê chỉ báo thay vì hiển thị sai nhóm.
+                nl_chuan, cb_chuan, lech_meta = chuan_hoa_cap_nang_luc_chi_bao(
+                    unit.get("nang_luc", ""),
+                    unit.get("chi_bao", "")
+                )
+                unit["nang_luc"] = nl_chuan
+                unit["chi_bao"] = cb_chuan
+                if lech_meta:
+                    unit["canh_bao_metadata"] = "Chỉ báo cũ không khớp thành phần năng lực; đã loại khỏi thống kê chỉ báo."
 
                 key = khoa_nang_luc(
                     unit.get("yccd", ""),
@@ -23612,7 +23714,18 @@ def tao_don_vi_ket_qua_cau(
                 else False
             )
 
-            units.append({
+            nl_raw = nd.get("thanh_phan_nang_luc", "")
+            cb_raw = (
+                nd.get("chi_bao", "")
+                or nd.get("hanh_vi_nang_luc", "")
+                or q.get("hanh_vi_nang_luc", "")
+            )
+            nl_chuan, cb_chuan, lech_meta = chuan_hoa_cap_nang_luc_chi_bao(
+                nl_raw,
+                cb_raw
+            )
+
+            unit = {
                 "yccd": nd.get(
                     "yccd",
                     ""
@@ -23621,21 +23734,23 @@ def tao_don_vi_ket_qua_cau(
                     "muc_do",
                     ""
                 ),
-                "nang_luc": nd.get(
-                    "thanh_phan_nang_luc",
-                    ""
-                ),
-                "chi_bao": (
-                    nd.get("chi_bao", "")
-                    or nd.get("hanh_vi_nang_luc", "")
-                    or q.get("hanh_vi_nang_luc", "")
-                ),
+                "nang_luc": nl_chuan,
+                "chi_bao": cb_chuan,
                 "dung": dung_y
-            })
+            }
+            if lech_meta:
+                unit["canh_bao_metadata"] = "Chỉ báo không khớp thành phần năng lực; không ghi mã chỉ báo sai vào lịch sử."
+            units.append(unit)
 
         return units
 
-    return [{
+    nl_raw = q.get("thanh_phan_nang_luc", "")
+    cb_raw = q.get("chi_bao", "") or q.get("hanh_vi_nang_luc", "")
+    nl_chuan, cb_chuan, lech_meta = chuan_hoa_cap_nang_luc_chi_bao(
+        nl_raw,
+        cb_raw
+    )
+    unit = {
         "yccd": q.get(
             "yccd",
             ""
@@ -23644,18 +23759,15 @@ def tao_don_vi_ket_qua_cau(
             "muc_do",
             ""
         ),
-        "nang_luc": q.get(
-            "thanh_phan_nang_luc",
-            ""
-        ),
-        "chi_bao": (
-            q.get("chi_bao", "")
-            or q.get("hanh_vi_nang_luc", "")
-        ),
+        "nang_luc": nl_chuan,
+        "chi_bao": cb_chuan,
         "dung": bool(
             dung_toan_cau
         )
-    }]
+    }
+    if lech_meta:
+        unit["canh_bao_metadata"] = "Chỉ báo không khớp thành phần năng lực; không ghi mã chỉ báo sai vào lịch sử."
+    return [unit]
 
 
 def tom_tat_diem_yeu(profile, limit=5):
