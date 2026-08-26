@@ -15543,7 +15543,7 @@ def du_lieu_va_tien_bo_hoc_sinh():
                         border=True
                     ):
                         st.markdown(
-                            f"**{i_w}. {x.get('yccd', '')}**"
+                            f"**{i_w}. {_nhan_kien_thuc_hs(x.get('yccd', ''))}**"
                         )
 
                         c_w1, c_w2, c_w3 = st.columns(
@@ -27061,9 +27061,8 @@ def hoc_sinh():
                         "Chưa đủ dữ liệu để kết luận chính xác chỉ báo yếu."
                     )
         else:
-            st.success(
-                "Chưa phát hiện thành phần năng lực nào yếu rõ ràng."
-            )
+            # Không hiện thông báo xanh về "thành phần năng lực" ở giao diện HS.
+            pass
 
         # --------------------------------------------------
         # 3. GỢI Ý LÀM BÀI
@@ -27094,6 +27093,18 @@ def hoc_sinh():
                 ) < 0.80
             )
         ]
+
+        def _nhan_kien_thuc_hs(value):
+            """Chỉ làm sạch nhãn HIỂN THỊ; không đổi dữ liệu/YCCĐ lưu trong hệ thống."""
+            s = str(value or "").strip()
+            if s.startswith("Kiến thức trọng tâm"):
+                s = re.sub(
+                    r"(•\s*)Bài\s+\d+\s*[.:]\s*",
+                    r"\1",
+                    s,
+                    flags=re.IGNORECASE
+                )
+            return s
 
         if weak_chua_dat:
             st.markdown(
@@ -27151,7 +27162,7 @@ def hoc_sinh():
                 options_more = [
                     "— Chọn để xem kiến thức nền tiếp theo —"
                 ] + [
-                    f"{i + 4}. {x.get('yccd', '')}"
+                    f"{i + 4}. {_nhan_kien_thuc_hs(x.get('yccd', ''))}"
                     for i, x in enumerate(con_lai)
                 ]
 
@@ -27171,7 +27182,7 @@ def hoc_sinh():
 
                     with st.container(border=True):
                         st.markdown(
-                            f"**{x_more.get('yccd', '')}**"
+                            f"**{_nhan_kien_thuc_hs(x_more.get('yccd', ''))}**"
                         )
 
                         st.write(
