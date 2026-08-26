@@ -28,3 +28,4 @@ yccd_backup.json
 sao_luu_ngan_hang/
 .streamlit/test_supabase.py
 chuyen_du_lieu_json_len_supabase.py
+*.pending_cloud*
