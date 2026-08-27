@@ -629,6 +629,94 @@ def get_questions_v2_by_scope(
     _cache_set_readonly(cache_key, out)
     return out
 
+
+def get_questions_v2_by_yccds(khoi="", yccds=None, limit=None):
+    """Đọc nội dung câu hỏi chỉ cho một NHÓM YCCĐ cần thiết.
+
+    Dùng cho "Luyện theo gợi ý hôm nay": thay vì tải toàn bộ ngân hàng
+    của cả khối, chỉ lấy các câu thuộc những YCCĐ đang cần củng cố.
+    Không đổi schema và vẫn trả về cùng cấu trúc question như các hàm V2 khác.
+
+    Trả None nếu truy vấn cloud lỗi để caller có thể fallback an toàn;
+    trả [] nếu truy vấn thành công nhưng không có câu phù hợp.
+    """
+    vals = []
+    seen_y = set()
+    for value in list(yccds or []):
+        y = str(value or "").strip()
+        if not y or y in seen_y:
+            continue
+        seen_y.add(y)
+        vals.append(y)
+    if not vals:
+        return []
+
+    khoi_vals = _grade_variants(khoi)
+    max_rows = None if limit is None else max(0, int(limit))
+    cache_key = (
+        "qv2_yccds:",
+        tuple(khoi_vals),
+        tuple(vals),
+        max_rows,
+    )
+    cached, ok = _cache_get_readonly(cache_key, _QUESTIONS_TTL)
+    if ok:
+        return cached
+
+    client = _supabase_client()
+    if client is None:
+        return None
+
+    by_id = {}
+    page_size = 1000
+    try:
+        # Chia nhỏ danh sách YCCĐ để URL PostgREST không quá dài.
+        for y_start in range(0, len(vals), 20):
+            batch_y = vals[y_start:y_start + 20]
+            start = 0
+            while True:
+                query = (
+                    client.table("questions_v2")
+                    .select("question_id,data")
+                    .in_("yccd", batch_y)
+                )
+                if khoi_vals:
+                    query = query.in_("khoi", khoi_vals)
+
+                end = start + page_size - 1
+                if max_rows is not None:
+                    remain = max_rows - len(by_id)
+                    if remain <= 0:
+                        break
+                    end = min(end, start + remain - 1)
+
+                rr = query.range(start, end).execute()
+                rows = getattr(rr, "data", None) or []
+                for row in rows:
+                    q = dict(row.get("data") or {})
+                    qid = str(row.get("question_id", "") or "")
+                    q.setdefault("id", qid)
+                    if qid:
+                        by_id[qid] = q
+                    if max_rows is not None and len(by_id) >= max_rows:
+                        break
+
+                requested = max(0, end - start + 1)
+                if len(rows) < requested:
+                    break
+                if max_rows is not None and len(by_id) >= max_rows:
+                    break
+                start = end + 1
+
+            if max_rows is not None and len(by_id) >= max_rows:
+                break
+    except Exception:
+        return None
+
+    out = list(by_id.values())
+    _cache_set_readonly(cache_key, out)
+    return out
+
 def get_questions_v2_by_ids(question_ids):
     ids = [str(x or "").strip() for x in question_ids if str(x or "").strip()]
     if not ids:

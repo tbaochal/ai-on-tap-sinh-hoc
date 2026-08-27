@@ -204,6 +204,7 @@ from fast_store import (
     append_attempt as _fast_append_attempt,
     get_all_questions_v2 as _fast_get_all_questions_v2,
     get_questions_v2_by_scope as _fast_get_questions_v2_by_scope,
+    get_questions_v2_by_yccds as _fast_get_questions_v2_by_yccds,
     get_question_index_v2_by_scope as _fast_get_question_index_v2_by_scope,
     get_questions_v2_by_ids as _fast_get_questions_v2_by_ids,
     questions_v2_count as _fast_questions_v2_count,
@@ -24227,6 +24228,66 @@ def goi_y_hoc_tap_hom_nay(profile, bank, limit=3):
     return goi_y
 
 
+
+def _yccd_uu_tien_tu_profile_hom_nay(profile):
+    """Trả YCCĐ theo đúng thứ tự ưu tiên mà màn hình gợi ý đang dùng."""
+    stats = [dict(x) for x in (profile.get("stats", {}) or {}).values()]
+    for item in stats:
+        item["trang_thai_hoc_tap"] = trang_thai_hoc_tap_unit(item)
+    stats.sort(
+        key=lambda item: (
+            0 if str(item.get("trang_thai_hoc_tap", "")).startswith("🔴") else
+            1 if str(item.get("trang_thai_hoc_tap", "")).startswith("🟡") else 2,
+            float(item.get("mastery", 0.5)),
+            -int(item.get("so_lan", 0) or 0),
+        )
+    )
+    out = []
+    seen = set()
+    for item in stats:
+        y = str(item.get("yccd", "") or "").strip()
+        if y and y not in seen:
+            seen.add(y)
+            out.append(y)
+    return out
+
+
+def doc_ngan_hang_goi_y_hs_fast(khoi, profile, target_goals=10):
+    """Tải đúng các YCCĐ yếu cho chế độ Gợi ý hôm nay.
+
+    Giữ nguyên thuật toán chấm điểm/pool hiện có; chỉ thu hẹp dữ liệu tải từ
+    Supabase trước khi đưa vào thuật toán. Nếu truy vấn tối ưu lỗi, trả None
+    để caller fallback về đường cũ an toàn.
+    """
+    yccds = _yccd_uu_tien_tu_profile_hom_nay(profile)
+    if not yccds:
+        return []
+
+    bank = []
+    ids = set()
+    batch_size = 12
+    for start in range(0, len(yccds), batch_size):
+        batch = yccds[start:start + batch_size]
+        rows = _fast_get_questions_v2_by_yccds(
+            khoi=_chuan_khoi_hs_fast(khoi),
+            yccds=batch,
+        )
+        if rows is None:
+            return None
+        for q in rows:
+            qid = str((q or {}).get("id", "") or "").strip()
+            if qid and qid in ids:
+                continue
+            if qid:
+                ids.add(qid)
+            bank.append(q)
+
+        # Khi đã đủ đúng số mục tiêu mà giao diện hiện tại cần, không tải thêm.
+        if len(goi_y_hoc_tap_hom_nay(profile, bank, int(target_goals))) >= int(target_goals):
+            break
+
+    return bank
+
 def tao_pool_luyen_goi_y_hom_nay(profile, bank, cac_muc_tieu):
     """
     Tạo pool CHUNG cho một lượt luyện gợi ý hôm nay.
@@ -25082,8 +25143,8 @@ def hoc_sinh():
             CHE_DO_DE_GV,
             "📈 Lịch sử & tiến bộ",
         }
+        can_goi_y_hom_nay = che_do == "🎯 Luyện theo gợi ý hôm nay"
         can_bank_day_du = che_do in {
-            "🎯 Luyện theo gợi ý hôm nay",
             CHE_DO_DE_GV,
             CHE_DO_KIEM_TRA_MA_TRAN,
         }
@@ -25108,6 +25169,18 @@ def hoc_sinh():
             bank = doc_chi_muc_ngan_hang_hs_fast(hs_khoi_query)
             st.caption("⚡ Màn hình chọn Bài/Chương mở từ dữ liệu YCCĐ cục bộ; **chưa tải câu hỏi**.")
 
+        elif can_goi_y_hom_nay and profile.get("tong_don_vi", 0):
+            # Chỉ tải câu thuộc các YCCĐ đang yếu, không kéo toàn bộ ngân hàng của cả khối.
+            bank_goi_y = doc_ngan_hang_goi_y_hs_fast(hs_khoi_query, profile, target_goals=10)
+            if bank_goi_y is None:
+                # Fallback an toàn: nếu truy vấn tối ưu gặp lỗi/schema cũ, giữ nguyên đường cũ.
+                bank_goi_y = doc_ngan_hang_hs_fast(hs_khoi_query)
+            bank = [
+                q for q in (bank_goi_y or [])
+                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+                and q.get("duoc_dung_luyen_hs", True)
+            ]
+
         elif can_bank_day_du:
             bank_on_tap_hs_fast = doc_ngan_hang_hs_fast(hs_khoi_query)
             bank = [
@@ -25127,7 +25200,8 @@ def hoc_sinh():
             ]
 
         # Lịch sử không cần tải ngân hàng. Ôn bài/chương chưa cần tải lịch sử.
-        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du or can_tot_nghiep):
+        can_goi_y_can_bank = can_goi_y_hom_nay and bool(profile.get("tong_don_vi", 0))
+        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du or can_goi_y_can_bank or can_tot_nghiep):
             st.warning("Ngân hàng chưa có câu đã duyệt phù hợp với khối của em.")
             return
 
