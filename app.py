@@ -139,32 +139,32 @@ _configure_data_paths(
 # ==========================================================
 @st.cache_data(ttl=120, show_spinner=False)
 def _doc_shared_list_cached(path):
-    data = _doc_document_shared(path, [], cache_ttl=600)
+    data = _doc_document_shared(path, [])
     return data if isinstance(data, list) else []
 
 
 @st.cache_data(ttl=8, show_spinner=False)
 def _doc_shared_list_live_cached(path):
-    data = _doc_document_shared(path, [], cache_ttl=8)
+    data = _doc_document_shared(path, [])
     return data if isinstance(data, list) else []
 
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _doc_shared_list_mid_cached(path):
-    data = _doc_document_shared(path, [], cache_ttl=45)
+    data = _doc_document_shared(path, [])
     return data if isinstance(data, list) else []
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _doc_shared_dict_cached(path):
-    data = _doc_document_shared(path, {}, cache_ttl=600)
+    data = _doc_document_shared(path, {})
     return data if isinstance(data, dict) else {}
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _document_count_cached(path):
     try:
-        return int(_document_count_shared(path, 0, cache_ttl=600) or 0)
+        return int(_document_count_shared(path, 0) or 0)
     except Exception:
         return 0
 
@@ -204,7 +204,6 @@ from fast_store import (
     append_attempt as _fast_append_attempt,
     get_all_questions_v2 as _fast_get_all_questions_v2,
     get_questions_v2_by_scope as _fast_get_questions_v2_by_scope,
-    get_questions_v2_by_yccds as _fast_get_questions_v2_by_yccds,
     get_question_index_v2_by_scope as _fast_get_question_index_v2_by_scope,
     get_questions_v2_by_ids as _fast_get_questions_v2_by_ids,
     questions_v2_count as _fast_questions_v2_count,
@@ -364,7 +363,7 @@ def _doc_yccd_runtime_cached():
                 return local
         except Exception:
             pass
-    return _doc_document_shared(YCCD_PATH, None, cache_ttl=600)
+    return _doc_document_shared(YCCD_PATH, None)
 
 KHO_YCCD = _doc_yccd_runtime_cached()
 
@@ -6476,75 +6475,6 @@ def luu_cau_vao_ngan_hang(question):
     return True
 
 
-
-
-def luu_nhieu_cau_vao_ngan_hang(ds_cau):
-    """
-    Lưu nhiều câu bằng MỘT lần ghi ngân hàng.
-
-    Giữ nguyên toàn bộ quy tắc của luu_cau_vao_ngan_hang():
-    - không đưa câu đề thật vào kho chung;
-    - chuẩn hóa cấu trúc;
-    - chặn trùng cao;
-    - giữ metadata kiểm định AI;
-    - tạo id/ngày tạo/trạng thái như cũ.
-
-    Trả về (tap_temp_id_da_luu, ly_do_theo_temp_id).
-    """
-    ds_cau = list(ds_cau or [])
-    if not ds_cau:
-        return set(), {}
-
-    bank = doc_ngan_hang()
-    bank_work = list(bank or [])
-    prepared = []
-    reasons = {}
-
-    for question in ds_cau:
-        temp_id = str(question.get("temp_id", ""))
-
-        if _la_ban_sao_cau_tot_nghiep_trong_ngan_hang_chung(question):
-            reasons[temp_id] = "Không thuộc Ngân hàng câu hỏi chung"
-            continue
-
-        q = chuan_hoa_cau_truc_cau_hoi(question)
-        if q.get("loi_cau_truc"):
-            reasons[temp_id] = "Lỗi cấu trúc"
-            continue
-
-        kq_trung = kiem_tra_trung_gan(q, bank_work)
-        if kq_trung.get("ti_le_cao_nhat", 0) >= 0.92:
-            reasons[temp_id] = "Trùng cao"
-            continue
-
-        cau_moi = dict(q)
-        cau_moi.setdefault("duoc_dung_luyen_hs", True)
-
-        if temp_id:
-            kd = st.session_state.ket_qua_kiem_dinh.get(temp_id)
-            if kd:
-                cau_moi["kiem_dinh_ai"] = kd
-
-        cau_moi.pop("temp_id", None)
-        cau_moi["id"] = str(uuid.uuid4())
-        cau_moi["ngay_tao"] = datetime.now().strftime("%d/%m/%Y %H:%M")
-        cau_moi["trang_thai"] = "Đã duyệt"
-
-        prepared.append((temp_id, cau_moi))
-        bank_work.append(cau_moi)
-
-    if not prepared:
-        return set(), reasons
-
-    if not luu_ngan_hang(bank_work):
-        for temp_id, _ in prepared:
-            reasons[temp_id] = "Không ghi được ngân hàng"
-        return set(), reasons
-
-    saved = {temp_id for temp_id, _ in prepared}
-    return saved, reasons
-
-
 # ==========================================================
 # NHẬN DIỆN THƯƠNG HIỆU - TRẠM SINH HỌC
 # ==========================================================
@@ -10602,7 +10532,6 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
                             kd_chua_dat = 0
 
                             id_da_luu = set()
-                            ds_san_sang_luu = []
 
                             # Đọc lại ngân hàng tại thời điểm duyệt.
                             bank_duyet_lo = doc_ngan_hang()
@@ -10652,37 +10581,26 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
                                     kd_chua_dat += 1
                                     continue
 
-                                # Chỉ gom câu đạt điều kiện. Ghi Supabase đúng 1 lần
-                                # sau khi đã duyệt xong cả lô để tránh ghi lại toàn kho
-                                # sau từng câu.
-                                ds_san_sang_luu.append(q_auto)
+                                if luu_cau_vao_ngan_hang(
+                                    q_auto
+                                ):
+                                    da_luu += 1
+                                    id_da_luu.add(
+                                        temp_q
+                                    )
 
-                                # Cập nhật bank cục bộ để câu sau vẫn được so trùng
-                                # với câu vừa được chấp nhận trong cùng lô.
-                                q_bank_temp = dict(q_auto)
-                                q_bank_temp["id"] = (
-                                    q_bank_temp.get("id")
-                                    or temp_q
-                                )
-                                bank_duyet_lo.append(q_bank_temp)
-
-                            if ds_san_sang_luu:
-                                id_da_luu, ly_do_luu_lo = luu_nhieu_cau_vao_ngan_hang(
-                                    ds_san_sang_luu
-                                )
-                                da_luu = len(id_da_luu)
-
-                                # Nếu có thay đổi đồng thời từ phiên khác hoặc lỗi ghi,
-                                # giữ lại câu để GV xử lí; không làm mất dữ liệu chờ duyệt.
-                                for q_auto in ds_san_sang_luu:
-                                    temp_q = str(q_auto.get("temp_id", ""))
-                                    if temp_q in id_da_luu:
-                                        continue
-                                    reason = str(ly_do_luu_lo.get(temp_q, "") or "")
-                                    if "Trùng" in reason:
-                                        bi_trung += 1
-                                    else:
-                                        bi_loi += 1
+                                    # Cập nhật bank cục bộ để câu sau
+                                    # cũng được so với câu vừa lưu.
+                                    q_bank_temp = dict(q_auto)
+                                    q_bank_temp["id"] = (
+                                        q_bank_temp.get("id")
+                                        or temp_q
+                                    )
+                                    bank_duyet_lo.append(
+                                        q_bank_temp
+                                    )
+                                else:
+                                    bi_trung += 1
 
                             # Chỉ bỏ khỏi danh sách chờ những câu đã lưu thật sự.
                             # Câu bị trùng/lỗi/chưa đạt vẫn giữ lại để GV xử lí.
@@ -24228,66 +24146,6 @@ def goi_y_hoc_tap_hom_nay(profile, bank, limit=3):
     return goi_y
 
 
-
-def _yccd_uu_tien_tu_profile_hom_nay(profile):
-    """Trả YCCĐ theo đúng thứ tự ưu tiên mà màn hình gợi ý đang dùng."""
-    stats = [dict(x) for x in (profile.get("stats", {}) or {}).values()]
-    for item in stats:
-        item["trang_thai_hoc_tap"] = trang_thai_hoc_tap_unit(item)
-    stats.sort(
-        key=lambda item: (
-            0 if str(item.get("trang_thai_hoc_tap", "")).startswith("🔴") else
-            1 if str(item.get("trang_thai_hoc_tap", "")).startswith("🟡") else 2,
-            float(item.get("mastery", 0.5)),
-            -int(item.get("so_lan", 0) or 0),
-        )
-    )
-    out = []
-    seen = set()
-    for item in stats:
-        y = str(item.get("yccd", "") or "").strip()
-        if y and y not in seen:
-            seen.add(y)
-            out.append(y)
-    return out
-
-
-def doc_ngan_hang_goi_y_hs_fast(khoi, profile, target_goals=10):
-    """Tải đúng các YCCĐ yếu cho chế độ Gợi ý hôm nay.
-
-    Giữ nguyên thuật toán chấm điểm/pool hiện có; chỉ thu hẹp dữ liệu tải từ
-    Supabase trước khi đưa vào thuật toán. Nếu truy vấn tối ưu lỗi, trả None
-    để caller fallback về đường cũ an toàn.
-    """
-    yccds = _yccd_uu_tien_tu_profile_hom_nay(profile)
-    if not yccds:
-        return []
-
-    bank = []
-    ids = set()
-    batch_size = 12
-    for start in range(0, len(yccds), batch_size):
-        batch = yccds[start:start + batch_size]
-        rows = _fast_get_questions_v2_by_yccds(
-            khoi=_chuan_khoi_hs_fast(khoi),
-            yccds=batch,
-        )
-        if rows is None:
-            return None
-        for q in rows:
-            qid = str((q or {}).get("id", "") or "").strip()
-            if qid and qid in ids:
-                continue
-            if qid:
-                ids.add(qid)
-            bank.append(q)
-
-        # Khi đã đủ đúng số mục tiêu mà giao diện hiện tại cần, không tải thêm.
-        if len(goi_y_hoc_tap_hom_nay(profile, bank, int(target_goals))) >= int(target_goals):
-            break
-
-    return bank
-
 def tao_pool_luyen_goi_y_hom_nay(profile, bank, cac_muc_tieu):
     """
     Tạo pool CHUNG cho một lượt luyện gợi ý hôm nay.
@@ -25143,8 +25001,8 @@ def hoc_sinh():
             CHE_DO_DE_GV,
             "📈 Lịch sử & tiến bộ",
         }
-        can_goi_y_hom_nay = che_do == "🎯 Luyện theo gợi ý hôm nay"
         can_bank_day_du = che_do in {
+            "🎯 Luyện theo gợi ý hôm nay",
             CHE_DO_DE_GV,
             CHE_DO_KIEM_TRA_MA_TRAN,
         }
@@ -25169,18 +25027,6 @@ def hoc_sinh():
             bank = doc_chi_muc_ngan_hang_hs_fast(hs_khoi_query)
             st.caption("⚡ Màn hình chọn Bài/Chương mở từ dữ liệu YCCĐ cục bộ; **chưa tải câu hỏi**.")
 
-        elif can_goi_y_hom_nay and profile.get("tong_don_vi", 0):
-            # Chỉ tải câu thuộc các YCCĐ đang yếu, không kéo toàn bộ ngân hàng của cả khối.
-            bank_goi_y = doc_ngan_hang_goi_y_hs_fast(hs_khoi_query, profile, target_goals=10)
-            if bank_goi_y is None:
-                # Fallback an toàn: nếu truy vấn tối ưu gặp lỗi/schema cũ, giữ nguyên đường cũ.
-                bank_goi_y = doc_ngan_hang_hs_fast(hs_khoi_query)
-            bank = [
-                q for q in (bank_goi_y or [])
-                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
-                and q.get("duoc_dung_luyen_hs", True)
-            ]
-
         elif can_bank_day_du:
             bank_on_tap_hs_fast = doc_ngan_hang_hs_fast(hs_khoi_query)
             bank = [
@@ -25200,8 +25046,7 @@ def hoc_sinh():
             ]
 
         # Lịch sử không cần tải ngân hàng. Ôn bài/chương chưa cần tải lịch sử.
-        can_goi_y_can_bank = can_goi_y_hom_nay and bool(profile.get("tong_don_vi", 0))
-        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du or can_goi_y_can_bank or can_tot_nghiep):
+        if che_do not in {"📈 Lịch sử & tiến bộ"} and not bank and (can_chi_muc or can_bank_day_du or can_tot_nghiep):
             st.warning("Ngân hàng chưa có câu đã duyệt phù hợp với khối của em.")
             return
 
@@ -25577,57 +25422,31 @@ def hoc_sinh():
 
                 du_lieu_de_chon = selected.get("data", {}) or {}
 
-                # GIỮ NGUYÊN CƠ CHẾ ĐỒNG HỒ CŨ; chỉ đọc thời gian chắc chắn hơn.
-                # Một số đề GV cũ có thể lưu thời gian bằng tên trường khác hoặc
-                # thiếu trường thời gian nhưng vẫn còn ma trận gốc. Khi đó lấy lại
-                # đúng thời gian từ mẫu ma trận tương ứng, không đặt thời gian đoán.
-                thoi_gian_de_gv = 0
-                for _key_tg in ("thoi_gian", "thoi_gian_phut", "thoi_gian_lam_phut"):
-                    try:
-                        _tg = int(du_lieu_de_chon.get(_key_tg, 0) or 0)
-                    except Exception:
-                        _tg = 0
-                    if _tg > 0:
-                        thoi_gian_de_gv = _tg
-                        break
-
+                # CHỈ SỬA THỜI GIAN: tương thích cả đề/mẫu cũ và mới.
+                # Mẫu ma trận thường có `thoi_gian`; một số đề GV cũ có thể chỉ
+                # còn `thoi_gian_phut` hoặc tham chiếu về mẫu gốc.
+                thoi_gian_de_gv = int(
+                    du_lieu_de_chon.get("thoi_gian", 0)
+                    or du_lieu_de_chon.get("thoi_gian_phut", 0)
+                    or 0
+                )
                 if thoi_gian_de_gv <= 0 and selected.get("type") == "exam":
-                    _exam_matrix = du_lieu_de_chon.get("ma_tran", []) or []
-                    _exam_grade = str(du_lieu_de_chon.get("khoi", "") or "").strip()
-                    _exam_template_id = str(
-                        du_lieu_de_chon.get("mau_id")
-                        or du_lieu_de_chon.get("template_id")
-                        or ""
-                    ).strip()
-
-                    for _mau_tg in (ds_mau or []):
-                        if not isinstance(_mau_tg, dict):
-                            continue
-
-                        _match_id = (
-                            bool(_exam_template_id)
-                            and str(_mau_tg.get("id", "") or "").strip() == _exam_template_id
-                        )
-                        _match_matrix = (
-                            bool(_exam_matrix)
-                            and (_mau_tg.get("ma_tran", []) or []) == _exam_matrix
-                            and (
-                                not _exam_grade
-                                or str(_mau_tg.get("khoi", "") or "").strip() == _exam_grade
+                    mau_id_goc = str(du_lieu_de_chon.get("mau_id", "") or "").strip()
+                    ten_mau_goc = str(du_lieu_de_chon.get("ten_mau", "") or "").strip()
+                    for _mau in ds_mau or []:
+                        if (
+                            (mau_id_goc and str((_mau or {}).get("id", "") or "").strip() == mau_id_goc)
+                            or (
+                                not mau_id_goc
+                                and ten_mau_goc
+                                and str((_mau or {}).get("ten_mau", "") or "").strip() == ten_mau_goc
                             )
-                        )
-                        if not (_match_id or _match_matrix):
-                            continue
-
-                        for _key_tg in ("thoi_gian", "thoi_gian_phut", "thoi_gian_lam_phut"):
-                            try:
-                                _tg = int(_mau_tg.get(_key_tg, 0) or 0)
-                            except Exception:
-                                _tg = 0
-                            if _tg > 0:
-                                thoi_gian_de_gv = _tg
-                                break
-                        if thoi_gian_de_gv > 0:
+                        ):
+                            thoi_gian_de_gv = int(
+                                (_mau or {}).get("thoi_gian", 0)
+                                or (_mau or {}).get("thoi_gian_phut", 0)
+                                or 0
+                            )
                             break
 
                 pham_vi = {
@@ -25646,7 +25465,7 @@ def hoc_sinh():
                     "ma_de": du_lieu_de_chon.get("ma_de", ""),
                     "ten_mau": du_lieu_de_chon.get("ten_mau", ""),
                     "mau_phien_ban": int(du_lieu_de_chon.get("phien_ban", 1) or 1),
-                    "thoi_gian_phut": int(thoi_gian_de_gv)
+                    "thoi_gian_phut": thoi_gian_de_gv
                 }
 
                 ten_luot = label
@@ -26310,12 +26129,26 @@ def hoc_sinh():
                 )
             )
 
-            limit_seconds = thoi_gian_quy_dinh * 60
+            # CHỈ SỬA THỜI GIAN: không so đồng hồ máy HS với đồng hồ server.
+            # Streamlit Cloud và máy học sinh có thể lệch giờ; vì vậy server tính
+            # số giây ban đầu, còn trình duyệt chỉ đếm bằng performance.now().
+            server_now_epoch = time.time()
             if han_nop_epoch:
-                limit_seconds = max(0, int(float(han_nop_epoch) - float(bat_dau_epoch)))
+                timer_initial_seconds = max(
+                    0,
+                    int(float(han_nop_epoch) - float(server_now_epoch))
+                )
+                timer_is_countdown = True
+            else:
+                timer_initial_seconds = max(
+                    0,
+                    int(float(server_now_epoch) - float(bat_dau_epoch))
+                )
+                timer_is_countdown = False
+
             timer_title = (
                 "⏳ Thời gian còn lại"
-                if limit_seconds > 0
+                if timer_is_countdown
                 else "⏱️ Thời gian đã làm"
             )
 
@@ -26328,8 +26161,9 @@ def hoc_sinh():
                   <div id="bio_timer" style="font-size:1.55rem;font-weight:800;color:#0f172a;">00:00</div>
                 </div>
                 <script>
-                const start = {float(bat_dau_epoch) * 1000.0};
-                const limit = {int(limit_seconds) * 1000};
+                const initial = {int(timer_initial_seconds)};
+                const countdown = {str(bool(timer_is_countdown)).lower()};
+                const perfStart = performance.now();
                 function fmt(sec) {{
                     sec = Math.max(0, Math.floor(sec));
                     const h = Math.floor(sec / 3600);
@@ -26339,12 +26173,12 @@ def hoc_sinh():
                          + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
                 }}
                 function tick() {{
-                    const elapsed = (Date.now() - start) / 1000;
-                    const value = limit > 0 ? Math.max(0, limit / 1000 - elapsed) : elapsed;
+                    const passed = (performance.now() - perfStart) / 1000;
+                    const value = countdown ? Math.max(0, initial - passed) : initial + passed;
                     const el = document.getElementById('bio_timer');
                     if (el) {{
                         el.textContent = fmt(value);
-                        if (limit > 0 && value <= 300) el.style.color = '#b91c1c';
+                        if (countdown && value <= 300) el.style.color = '#b91c1c';
                     }}
                 }}
                 tick();
