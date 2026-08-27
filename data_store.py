@@ -48,19 +48,12 @@ def configure_paths(student_path="", hs_history_path=""):
 # ------------------------------------------------------------------
 _CACHE_LOCK = threading.RLock()
 _CACHE = {}
-
-# Cache document mặc định vẫn vừa phải để giữ tương thích với các caller cũ.
-# app.py có thể truyền TTL riêng theo loại dữ liệu: dữ liệu sống dùng TTL ngắn,
-# kho lớn/ổn định dùng TTL dài hơn.
+# Giữ bản document cloud gần nhất cùng updated_at để sau khi TTL hết
+# chỉ cần kiểm tra phiên bản nhẹ, không tải lại toàn bộ JSON nếu chưa đổi.
+_DOCUMENT_LAST_GOOD = {}
 _DOCUMENT_CACHE_TTL = 60.0
-_DOCUMENT_COUNT_CACHE_TTL = 300.0
 _STUDENT_CACHE_TTL = 20.0
 _ATTEMPT_CACHE_TTL = 15.0
-
-# Single-flight theo từng document: khi nhiều phiên Streamlit cùng cache-miss,
-# chỉ một luồng tải Supabase; các luồng còn lại chờ rồi dùng chung cache.
-_FETCH_LOCKS = {}
-_FETCH_LOCKS_GUARD = threading.RLock()
 
 
 def _cache_get(key, ttl):
@@ -91,61 +84,32 @@ def _cache_invalidate(*keys):
             _CACHE.pop(key, None)
 
 
+def _remember_document_version(key, updated_at, value):
+    if not key:
+        return
+    with _CACHE_LOCK:
+        _DOCUMENT_LAST_GOOD[key] = (str(updated_at or ""), copy.deepcopy(value))
+
+
+def _last_document_version(key):
+    with _CACHE_LOCK:
+        item = _DOCUMENT_LAST_GOOD.get(key)
+        if not item:
+            return None
+        version, value = item
+        return str(version or ""), copy.deepcopy(value)
+
+
+def _forget_document_version(key):
+    with _CACHE_LOCK:
+        _DOCUMENT_LAST_GOOD.pop(key, None)
+
+
 def clear_runtime_cache():
     """Xóa cache RAM; không xóa dữ liệu local/Supabase."""
     _cache_invalidate()
-
-
-def _fetch_lock(key):
-    """Khóa tải theo key để chống nhiều session cùng kéo một document lớn."""
-    with _FETCH_LOCKS_GUARD:
-        lock = _FETCH_LOCKS.get(key)
-        if lock is None:
-            lock = threading.Lock()
-            _FETCH_LOCKS[key] = lock
-        return lock
-
-
-def _cache_document_set(key, value):
-    """Cache document và đồng thời cache số phần tử để badge không gọi mạng lại."""
-    _cache_set(("document", key), value)
-    if isinstance(value, (list, dict)):
-        _cache_set(("document_count", key), len(value))
-
-
-def _cached_document_count(key, ttl):
-    """Lấy len từ cache document mà không deepcopy cả khối JSON lớn."""
-    now = time.monotonic()
     with _CACHE_LOCK:
-        item = _CACHE.get(("document", key))
-        if not item:
-            return None, False
-        ts, value = item
-        if now - ts > float(ttl):
-            return None, False
-        if isinstance(value, (list, dict)):
-            return len(value), True
-    return None, False
-
-
-def _upsert_minimal(client_sb, table_name, payload, on_conflict):
-    """
-    Upsert nhưng yêu cầu PostgREST không trả lại toàn bộ row JSON.
-    Có fallback tương thích nếu phiên bản supabase-py cũ chưa hỗ trợ returning.
-    """
-    table = client_sb.table(table_name)
-    try:
-        return table.upsert(
-            payload,
-            on_conflict=on_conflict,
-            returning="minimal",
-        ).execute()
-    except TypeError:
-        # Giữ tương thích tuyệt đối với bản thư viện cũ.
-        return client_sb.table(table_name).upsert(
-            payload,
-            on_conflict=on_conflict,
-        ).execute()
+        _DOCUMENT_LAST_GOOD.clear()
 
 
 # ------------------------------------------------------------------
@@ -275,7 +239,9 @@ def _doc_cloud_document(client_sb, key):
         return None
     root = rows[0]
     data = root.get("data")
+    root_updated_at = str(root.get("updated_at", "") or "")
     if not (isinstance(data, dict) and data.get(_CLOUD_CHUNK_MARKER)):
+        _remember_document_version(key, root_updated_at, data)
         return data
 
     n = int(data.get("chunk_count", 0) or 0)
@@ -330,18 +296,27 @@ def _doc_cloud_document(client_sb, key):
         got = hashlib.sha256(raw.encode("utf-8")).hexdigest()
         if got != expected_sha:
             raise RuntimeError("Checksum dữ liệu cloud không khớp.")
+    _remember_document_version(key, root_updated_at, out)
     return out
 
 
-def _doc_document_shared(path, default=None, cache_ttl=None):
-    """
-    Đọc Supabase/local như cũ nhưng có TTL theo caller và single-flight.
+def _doc_cloud_updated_at(client_sb, key):
+    """Đọc phiên bản cực nhẹ của document; không kéo cột data."""
+    rr = (
+        client_sb.table("app_documents")
+        .select("updated_at")
+        .eq("document_key", key)
+        .limit(1)
+        .execute()
+    )
+    rows = getattr(rr, "data", None) or []
+    if not rows:
+        return None
+    return str(rows[0].get("updated_at", "") or "")
 
-    - Không đổi nguồn dữ liệu / schema.
-    - Caller dữ liệu sống có thể truyền TTL ngắn.
-    - Caller kho lớn/ổn định có thể truyền TTL dài để giảm Egress.
-    """
-    ttl = _DOCUMENT_CACHE_TTL if cache_ttl is None else max(0.0, float(cache_ttl))
+
+def _doc_document_shared(path, default=None):
+    """Đọc Supabase/local như cũ, nhưng cache ngắn để tránh tải lặp khi rerun."""
     local_data = _doc_json_local(path, default)
 
     # Nếu app vừa ghi cloud thất bại, ưu tiên local mới nhất và không dùng cache cũ.
@@ -350,51 +325,47 @@ def _doc_document_shared(path, default=None, cache_ttl=None):
 
     key = _document_key(path)
     cache_key = ("document", key)
-    cached, ok = _cache_get(cache_key, ttl)
+    cached, ok = _cache_get(cache_key, _DOCUMENT_CACHE_TTL)
     if ok:
         return cached
 
-    # Chống "thundering herd": nhiều session cache-miss cùng lúc chỉ tải 1 lần.
-    with _fetch_lock(cache_key):
-        cached, ok = _cache_get(cache_key, ttl)
-        if ok:
-            return cached
+    client_sb = _supabase_client()
+    if client_sb is not None and key:
+        try:
+            # Sau lần tải đầy đủ đầu tiên, khi TTL hết chỉ kiểm tra updated_at.
+            # Nếu cloud chưa đổi, tái dùng bản đã có: nhanh hơn và giảm egress mạnh.
+            last = _last_document_version(key)
+            if last is not None:
+                last_version, last_value = last
+                cloud_version = _doc_cloud_updated_at(client_sb, key)
+                if cloud_version is not None and last_version and cloud_version == last_version:
+                    _cache_set(cache_key, last_value)
+                    return copy.deepcopy(last_value)
 
-        client_sb = _supabase_client()
-        if client_sb is not None and key:
-            try:
-                data = _doc_cloud_document(client_sb, key)
-                if data is not None:
-                    _cache_document_set(key, data)
-                    return copy.deepcopy(data)
-            except Exception as e:
-                _SHARED_WRITE_ERRORS[key] = f"Lỗi đọc cloud: {e}"
+            data = _doc_cloud_document(client_sb, key)
+            if data is not None:
+                _cache_set(cache_key, data)
+                return copy.deepcopy(data)
+        except Exception as e:
+            _SHARED_WRITE_ERRORS[key] = f"Lỗi đọc cloud: {e}"
 
-        # Cache cả fallback local trong thời gian caller yêu cầu.
-        _cache_document_set(key, local_data)
-        return copy.deepcopy(local_data)
+    # Cache cả fallback local trong thời gian ngắn để tránh đọc file liên tục.
+    _cache_set(cache_key, local_data)
+    return copy.deepcopy(local_data)
 
-def document_count_shared(path, default=0, cache_ttl=None):
+def document_count_shared(path, default=0):
     """Đếm nhanh số phần tử của document mà không tải các chunk lớn.
 
-    Ưu tiên count đã cache / len của document đã cache. Chỉ khi chưa có mới
-    đọc row gốc trên app_documents. Với document chunked, row gốc chỉ là manifest.
+    Dùng cho badge/sidebar. Không thay dữ liệu và không thay schema.
     """
-    ttl = _DOCUMENT_COUNT_CACHE_TTL if cache_ttl is None else max(0.0, float(cache_ttl))
     key = _document_key(path)
     cache_key = ("document_count", key)
-    cached, ok = _cache_get(cache_key, ttl)
+    cached, ok = _cache_get(cache_key, _DOCUMENT_CACHE_TTL)
     if ok:
         try:
             return int(cached)
         except Exception:
             pass
-
-    # Nếu document đầy đủ đang còn cache thì lấy len trực tiếp, không gọi Supabase.
-    doc_count, doc_ok = _cached_document_count(key, ttl)
-    if doc_ok:
-        _cache_set(cache_key, doc_count)
-        return int(doc_count)
 
     # Nếu có lần ghi cloud đang pending, local là bản mới hơn.
     if _co_pending_sync(path):
@@ -403,42 +374,34 @@ def document_count_shared(path, default=0, cache_ttl=None):
         _cache_set(cache_key, count)
         return count
 
-    with _fetch_lock(cache_key):
-        cached, ok = _cache_get(cache_key, ttl)
-        if ok:
-            try:
-                return int(cached)
-            except Exception:
-                pass
+    client_sb = _supabase_client()
+    if client_sb is not None and key:
+        try:
+            rr = (
+                client_sb.table("app_documents")
+                .select("data")
+                .eq("document_key", key)
+                .limit(1)
+                .execute()
+            )
+            rows = getattr(rr, "data", None) or []
+            if rows:
+                data = rows[0].get("data")
+                if isinstance(data, dict) and data.get(_CLOUD_CHUNK_MARKER):
+                    count = int(data.get("item_count", 0) or 0)
+                elif isinstance(data, (list, dict)):
+                    count = len(data)
+                else:
+                    count = int(default or 0)
+                _cache_set(cache_key, count)
+                return count
+        except Exception:
+            pass
 
-        client_sb = _supabase_client()
-        if client_sb is not None and key:
-            try:
-                rr = (
-                    client_sb.table("app_documents")
-                    .select("data")
-                    .eq("document_key", key)
-                    .limit(1)
-                    .execute()
-                )
-                rows = getattr(rr, "data", None) or []
-                if rows:
-                    data = rows[0].get("data")
-                    if isinstance(data, dict) and data.get(_CLOUD_CHUNK_MARKER):
-                        count = int(data.get("item_count", 0) or 0)
-                    elif isinstance(data, (list, dict)):
-                        count = len(data)
-                    else:
-                        count = int(default or 0)
-                    _cache_set(cache_key, count)
-                    return count
-            except Exception:
-                pass
-
-        local_data = _doc_json_local(path, None)
-        count = len(local_data) if isinstance(local_data, (list, dict)) else int(default or 0)
-        _cache_set(cache_key, count)
-        return count
+    local_data = _doc_json_local(path, None)
+    count = len(local_data) if isinstance(local_data, (list, dict)) else int(default or 0)
+    _cache_set(cache_key, count)
+    return count
 
 
 def _luu_document_shared(path, data):
@@ -462,16 +425,15 @@ def _luu_document_shared(path, data):
 
             for i, chunk in enumerate(chunks):
                 ck = f"{key}::chunk::{i:05d}"
-                _upsert_minimal(
-                    client_sb,
-                    "app_documents",
+                client_sb.table("app_documents").upsert(
                     {
                         "document_key": ck,
                         "data": {"items": chunk},
                         "updated_at": now_iso,
                     },
-                    "document_key",
-                )
+                    on_conflict="document_key",
+                    returning="minimal",
+                ).execute()
 
             manifest = {
                 _CLOUD_CHUNK_MARKER: True,
@@ -480,27 +442,25 @@ def _luu_document_shared(path, data):
                 "item_count": len(data),
                 "sha256": sha,
             }
-            _upsert_minimal(
-                client_sb,
-                "app_documents",
+            client_sb.table("app_documents").upsert(
                 {
                     "document_key": key,
                     "data": manifest,
                     "updated_at": now_iso,
                 },
-                "document_key",
-            )
+                on_conflict="document_key",
+                returning="minimal",
+            ).execute()
         else:
-            _upsert_minimal(
-                client_sb,
-                "app_documents",
+            client_sb.table("app_documents").upsert(
                 {
                     "document_key": key,
                     "data": data,
                     "updated_at": now_iso,
                 },
-                "document_key",
-            )
+                on_conflict="document_key",
+                returning="minimal",
+            ).execute()
 
         if isinstance(data, list) and len(raw_bytes) > _CLOUD_CHUNK_TARGET_BYTES:
             rr = (
@@ -522,18 +482,18 @@ def _luu_document_shared(path, data):
             ):
                 raise RuntimeError("Xác minh sau ghi thất bại: manifest cloud không khớp.")
         else:
-            verify = _doc_cloud_document(client_sb, key)
-            if isinstance(data, list):
-                if not isinstance(verify, list) or len(verify) != len(data):
-                    raise RuntimeError(
-                        f"Xác minh sau ghi thất bại: local {len(data)} mục, cloud {len(verify) if isinstance(verify, list) else 'không phải danh sách'} mục."
-                    )
-            elif verify != data:
-                raise RuntimeError("Xác minh sau ghi thất bại: dữ liệu cloud khác dữ liệu vừa lưu.")
+            # Upsert là đồng bộ và đã trả thành công. Chỉ xác minh phiên bản nhẹ
+            # thay vì tải ngược toàn bộ JSON vừa ghi (tránh egress kép).
+            verify_updated_at = _doc_cloud_updated_at(client_sb, key)
+            if not verify_updated_at:
+                raise RuntimeError("Xác minh sau ghi thất bại: không đọc được phiên bản cloud.")
 
         _SHARED_WRITE_ERRORS.pop(key, None)
         _clear_pending_sync(path)
-        _cache_document_set(key, data)
+        _cache_set(("document", key), data)
+        _remember_document_version(key, now_iso, data)
+        if isinstance(data, (list, dict)):
+            _cache_set(("document_count", key), len(data))
         return True
 
     except Exception as e:
@@ -623,9 +583,9 @@ def _luu_students_shared(ds):
             for i in range(0, len(rows), 200):
                 batch = rows[i:i + 200]
                 if batch:
-                    _upsert_minimal(
-                        client_sb, "students", batch, "student_id"
-                    )
+                    client_sb.table("students").upsert(
+                        batch, on_conflict="student_id", returning="minimal"
+                    ).execute()
             cloud_ok = True
         except Exception:
             cloud_ok = False
@@ -645,7 +605,7 @@ def _xoa_student_shared(student_id):
     if client_sb is None:
         return False
     try:
-        client_sb.table("students").delete().eq("student_id", sid).execute()
+        client_sb.table("students").delete(returning="minimal").eq("student_id", sid).execute()
         _cache_invalidate(("students", "all"))
         return True
     except Exception:
@@ -766,9 +726,9 @@ def _luu_attempts_shared(ds):
             for i in range(0, len(rows), 100):
                 batch = rows[i:i + 100]
                 if batch:
-                    _upsert_minimal(
-                        client_sb, "student_attempts", batch, "id"
-                    )
+                    client_sb.table("student_attempts").upsert(
+                        batch, on_conflict="id", returning="minimal"
+                    ).execute()
             cloud_ok = True
         except Exception:
             cloud_ok = False
