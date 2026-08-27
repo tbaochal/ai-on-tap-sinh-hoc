@@ -19,7 +19,22 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from data_store import _supabase_client, _doc_json_local, _luu_json_local, _upsert_minimal
+from data_store import _supabase_client, _doc_json_local, _luu_json_local
+
+
+
+def _upsert_minimal(client_sb, table_name, payload, on_conflict):
+    """Upsert tương thích cả data_store cũ và mới; ưu tiên không trả payload để giảm egress."""
+    table = client_sb.table(table_name)
+    try:
+        return table.upsert(
+            payload,
+            on_conflict=on_conflict,
+            returning="minimal",
+        ).execute()
+    except TypeError:
+        # Tương thích supabase-py/postgrest cũ không nhận returning trong upsert().
+        return table.upsert(payload, on_conflict=on_conflict).execute()
 
 _LOCK = threading.RLock()
 _CACHE = {}
