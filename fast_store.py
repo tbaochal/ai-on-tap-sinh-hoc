@@ -19,7 +19,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
-from data_store import _supabase_client, _doc_json_local, _luu_json_local
+from data_store import _supabase_client, _doc_json_local, _luu_json_local, _upsert_minimal
 
 _LOCK = threading.RLock()
 _CACHE = {}
@@ -27,7 +27,7 @@ _CACHE = {}
 _STUDENT_TTL = 300.0
 _ATTEMPT_TTL = 30.0
 _CLASS_TTL = 60.0
-_QUESTIONS_TTL = 180.0
+_QUESTIONS_TTL = 300.0
 
 
 def _norm_sid(value):
@@ -325,7 +325,7 @@ def append_attempt(attempt, local_history_path=""):
 
     if client is not None:
         try:
-            client.table("student_attempts").upsert([row], on_conflict="id").execute()
+            _upsert_minimal(client, "student_attempts", [row], "id")
             cloud_ok = True
         except Exception as e:
             cloud_error = str(e)

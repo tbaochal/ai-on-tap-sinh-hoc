@@ -139,32 +139,32 @@ _configure_data_paths(
 # ==========================================================
 @st.cache_data(ttl=120, show_spinner=False)
 def _doc_shared_list_cached(path):
-    data = _doc_document_shared(path, [])
+    data = _doc_document_shared(path, [], cache_ttl=600)
     return data if isinstance(data, list) else []
 
 
 @st.cache_data(ttl=8, show_spinner=False)
 def _doc_shared_list_live_cached(path):
-    data = _doc_document_shared(path, [])
+    data = _doc_document_shared(path, [], cache_ttl=8)
     return data if isinstance(data, list) else []
 
 
 @st.cache_data(ttl=45, show_spinner=False)
 def _doc_shared_list_mid_cached(path):
-    data = _doc_document_shared(path, [])
+    data = _doc_document_shared(path, [], cache_ttl=45)
     return data if isinstance(data, list) else []
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def _doc_shared_dict_cached(path):
-    data = _doc_document_shared(path, {})
+    data = _doc_document_shared(path, {}, cache_ttl=600)
     return data if isinstance(data, dict) else {}
 
 
 @st.cache_data(ttl=120, show_spinner=False)
 def _document_count_cached(path):
     try:
-        return int(_document_count_shared(path, 0) or 0)
+        return int(_document_count_shared(path, 0, cache_ttl=600) or 0)
     except Exception:
         return 0
 
@@ -363,7 +363,7 @@ def _doc_yccd_runtime_cached():
                 return local
         except Exception:
             pass
-    return _doc_document_shared(YCCD_PATH, None)
+    return _doc_document_shared(YCCD_PATH, None, cache_ttl=600)
 
 KHO_YCCD = _doc_yccd_runtime_cached()
 
@@ -6475,6 +6475,75 @@ def luu_cau_vao_ngan_hang(question):
     return True
 
 
+
+
+def luu_nhieu_cau_vao_ngan_hang(ds_cau):
+    """
+    Lưu nhiều câu bằng MỘT lần ghi ngân hàng.
+
+    Giữ nguyên toàn bộ quy tắc của luu_cau_vao_ngan_hang():
+    - không đưa câu đề thật vào kho chung;
+    - chuẩn hóa cấu trúc;
+    - chặn trùng cao;
+    - giữ metadata kiểm định AI;
+    - tạo id/ngày tạo/trạng thái như cũ.
+
+    Trả về (tap_temp_id_da_luu, ly_do_theo_temp_id).
+    """
+    ds_cau = list(ds_cau or [])
+    if not ds_cau:
+        return set(), {}
+
+    bank = doc_ngan_hang()
+    bank_work = list(bank or [])
+    prepared = []
+    reasons = {}
+
+    for question in ds_cau:
+        temp_id = str(question.get("temp_id", ""))
+
+        if _la_ban_sao_cau_tot_nghiep_trong_ngan_hang_chung(question):
+            reasons[temp_id] = "Không thuộc Ngân hàng câu hỏi chung"
+            continue
+
+        q = chuan_hoa_cau_truc_cau_hoi(question)
+        if q.get("loi_cau_truc"):
+            reasons[temp_id] = "Lỗi cấu trúc"
+            continue
+
+        kq_trung = kiem_tra_trung_gan(q, bank_work)
+        if kq_trung.get("ti_le_cao_nhat", 0) >= 0.92:
+            reasons[temp_id] = "Trùng cao"
+            continue
+
+        cau_moi = dict(q)
+        cau_moi.setdefault("duoc_dung_luyen_hs", True)
+
+        if temp_id:
+            kd = st.session_state.ket_qua_kiem_dinh.get(temp_id)
+            if kd:
+                cau_moi["kiem_dinh_ai"] = kd
+
+        cau_moi.pop("temp_id", None)
+        cau_moi["id"] = str(uuid.uuid4())
+        cau_moi["ngay_tao"] = datetime.now().strftime("%d/%m/%Y %H:%M")
+        cau_moi["trang_thai"] = "Đã duyệt"
+
+        prepared.append((temp_id, cau_moi))
+        bank_work.append(cau_moi)
+
+    if not prepared:
+        return set(), reasons
+
+    if not luu_ngan_hang(bank_work):
+        for temp_id, _ in prepared:
+            reasons[temp_id] = "Không ghi được ngân hàng"
+        return set(), reasons
+
+    saved = {temp_id for temp_id, _ in prepared}
+    return saved, reasons
+
+
 # ==========================================================
 # NHẬN DIỆN THƯƠNG HIỆU - TRẠM SINH HỌC
 # ==========================================================
@@ -10532,6 +10601,7 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
                             kd_chua_dat = 0
 
                             id_da_luu = set()
+                            ds_san_sang_luu = []
 
                             # Đọc lại ngân hàng tại thời điểm duyệt.
                             bank_duyet_lo = doc_ngan_hang()
@@ -10581,26 +10651,37 @@ def phan_tich_do_phu_va_tao_tu_dong_on_tap():
                                     kd_chua_dat += 1
                                     continue
 
-                                if luu_cau_vao_ngan_hang(
-                                    q_auto
-                                ):
-                                    da_luu += 1
-                                    id_da_luu.add(
-                                        temp_q
-                                    )
+                                # Chỉ gom câu đạt điều kiện. Ghi Supabase đúng 1 lần
+                                # sau khi đã duyệt xong cả lô để tránh ghi lại toàn kho
+                                # sau từng câu.
+                                ds_san_sang_luu.append(q_auto)
 
-                                    # Cập nhật bank cục bộ để câu sau
-                                    # cũng được so với câu vừa lưu.
-                                    q_bank_temp = dict(q_auto)
-                                    q_bank_temp["id"] = (
-                                        q_bank_temp.get("id")
-                                        or temp_q
-                                    )
-                                    bank_duyet_lo.append(
-                                        q_bank_temp
-                                    )
-                                else:
-                                    bi_trung += 1
+                                # Cập nhật bank cục bộ để câu sau vẫn được so trùng
+                                # với câu vừa được chấp nhận trong cùng lô.
+                                q_bank_temp = dict(q_auto)
+                                q_bank_temp["id"] = (
+                                    q_bank_temp.get("id")
+                                    or temp_q
+                                )
+                                bank_duyet_lo.append(q_bank_temp)
+
+                            if ds_san_sang_luu:
+                                id_da_luu, ly_do_luu_lo = luu_nhieu_cau_vao_ngan_hang(
+                                    ds_san_sang_luu
+                                )
+                                da_luu = len(id_da_luu)
+
+                                # Nếu có thay đổi đồng thời từ phiên khác hoặc lỗi ghi,
+                                # giữ lại câu để GV xử lí; không làm mất dữ liệu chờ duyệt.
+                                for q_auto in ds_san_sang_luu:
+                                    temp_q = str(q_auto.get("temp_id", ""))
+                                    if temp_q in id_da_luu:
+                                        continue
+                                    reason = str(ly_do_luu_lo.get(temp_q, "") or "")
+                                    if "Trùng" in reason:
+                                        bi_trung += 1
+                                    else:
+                                        bi_loi += 1
 
                             # Chỉ bỏ khỏi danh sách chờ những câu đã lưu thật sự.
                             # Câu bị trùng/lỗi/chưa đạt vẫn giữ lại để GV xử lí.
