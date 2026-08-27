@@ -25576,6 +25576,60 @@ def hoc_sinh():
                 )
 
                 du_lieu_de_chon = selected.get("data", {}) or {}
+
+                # GIỮ NGUYÊN CƠ CHẾ ĐỒNG HỒ CŨ; chỉ đọc thời gian chắc chắn hơn.
+                # Một số đề GV cũ có thể lưu thời gian bằng tên trường khác hoặc
+                # thiếu trường thời gian nhưng vẫn còn ma trận gốc. Khi đó lấy lại
+                # đúng thời gian từ mẫu ma trận tương ứng, không đặt thời gian đoán.
+                thoi_gian_de_gv = 0
+                for _key_tg in ("thoi_gian", "thoi_gian_phut", "thoi_gian_lam_phut"):
+                    try:
+                        _tg = int(du_lieu_de_chon.get(_key_tg, 0) or 0)
+                    except Exception:
+                        _tg = 0
+                    if _tg > 0:
+                        thoi_gian_de_gv = _tg
+                        break
+
+                if thoi_gian_de_gv <= 0 and selected.get("type") == "exam":
+                    _exam_matrix = du_lieu_de_chon.get("ma_tran", []) or []
+                    _exam_grade = str(du_lieu_de_chon.get("khoi", "") or "").strip()
+                    _exam_template_id = str(
+                        du_lieu_de_chon.get("mau_id")
+                        or du_lieu_de_chon.get("template_id")
+                        or ""
+                    ).strip()
+
+                    for _mau_tg in (ds_mau or []):
+                        if not isinstance(_mau_tg, dict):
+                            continue
+
+                        _match_id = (
+                            bool(_exam_template_id)
+                            and str(_mau_tg.get("id", "") or "").strip() == _exam_template_id
+                        )
+                        _match_matrix = (
+                            bool(_exam_matrix)
+                            and (_mau_tg.get("ma_tran", []) or []) == _exam_matrix
+                            and (
+                                not _exam_grade
+                                or str(_mau_tg.get("khoi", "") or "").strip() == _exam_grade
+                            )
+                        )
+                        if not (_match_id or _match_matrix):
+                            continue
+
+                        for _key_tg in ("thoi_gian", "thoi_gian_phut", "thoi_gian_lam_phut"):
+                            try:
+                                _tg = int(_mau_tg.get(_key_tg, 0) or 0)
+                            except Exception:
+                                _tg = 0
+                            if _tg > 0:
+                                thoi_gian_de_gv = _tg
+                                break
+                        if thoi_gian_de_gv > 0:
+                            break
+
                 pham_vi = {
                     "mau_de": label,
                     "loai_nguon": selected.get("type", ""),
@@ -25592,7 +25646,7 @@ def hoc_sinh():
                     "ma_de": du_lieu_de_chon.get("ma_de", ""),
                     "ten_mau": du_lieu_de_chon.get("ten_mau", ""),
                     "mau_phien_ban": int(du_lieu_de_chon.get("phien_ban", 1) or 1),
-                    "thoi_gian_phut": int(du_lieu_de_chon.get("thoi_gian", 0) or 0)
+                    "thoi_gian_phut": int(thoi_gian_de_gv)
                 }
 
                 ten_luot = label
