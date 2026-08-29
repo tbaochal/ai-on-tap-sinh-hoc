@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tầng dữ liệu dùng chung của TRẠM SINH HỌC — Giai đoạn 2 (cache an toàn, không đổi dữ liệu).
+Tầng dữ liệu dùng chung của TRẠM SINH HỌC — EGRESS FIX (giữ nguyên schema/dữ liệu).
 
 Mục tiêu của giai đoạn này:
 - GIỮ tầng dữ liệu đã tách và thêm cache RAM ngắn hạn để giảm đọc lặp.

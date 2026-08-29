@@ -40,9 +40,9 @@ _LOCK = threading.RLock()
 _CACHE = {}
 
 _STUDENT_TTL = 300.0
-_ATTEMPT_TTL = 30.0
-_CLASS_TTL = 60.0
-_QUESTIONS_TTL = 300.0
+_ATTEMPT_TTL = 60.0
+_CLASS_TTL = 120.0
+_QUESTIONS_TTL = 600.0
 
 
 def _norm_sid(value):

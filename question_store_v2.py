@@ -163,10 +163,19 @@ def sync_questions(legacy_questions, limit=None, batch_size=50, progress_callbac
         batch = rows[start:start + max(1, int(batch_size))]
         if not batch:
             continue
-        client.table(TABLE_NAME).upsert(
-            batch,
-            on_conflict="question_id",
-        ).execute()
+        table = client.table(TABLE_NAME)
+        try:
+            table.upsert(
+                batch,
+                on_conflict="question_id",
+                returning="minimal",
+            ).execute()
+        except TypeError:
+            # Tương thích supabase-py/postgrest cũ.
+            table.upsert(
+                batch,
+                on_conflict="question_id",
+            ).execute()
         written += len(batch)
         if progress_callback is not None:
             try:

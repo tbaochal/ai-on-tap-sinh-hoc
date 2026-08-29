@@ -14,6 +14,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 import unicodedata
 import base64
+import copy
 from datetime import datetime, timezone, timedelta
 from google import genai
 from google.genai import types
@@ -206,6 +207,7 @@ from fast_store import (
     get_questions_v2_by_scope as _fast_get_questions_v2_by_scope,
     get_question_index_v2_by_scope as _fast_get_question_index_v2_by_scope,
     get_questions_v2_by_ids as _fast_get_questions_v2_by_ids,
+    get_questions_v2_by_yccds as _fast_get_questions_v2_by_yccds,
     questions_v2_count as _fast_questions_v2_count,
     clear_fast_cache as _clear_fast_store_cache,
 )
@@ -13620,13 +13622,14 @@ def tong_hop_du_lieu_lop(lop_chon=None, che_do_filter=None, ten_luot_filter=None
         for item in lan.get("chi_tiet", []) or []:
             q = item.get("cau_snapshot", {}) or {}
             dang = str(item.get("dang_cau", q.get("dang_cau", ""))).strip()
-            bai = str(q.get("bai", "")).strip()
-            chuong = str(q.get("chuong", "")).strip()
+            bai = str(item.get("bai") or q.get("bai", "")).strip()
+            chuong = str(item.get("chuong") or q.get("chuong", "")).strip()
             units = item.get("don_vi_danh_gia", []) or []
             if not units:
                 units = [{
-                    "yccd": q.get("yccd", ""), "muc_do": q.get("muc_do", ""),
-                    "nang_luc": q.get("thanh_phan_nang_luc", ""),
+                    "yccd": item.get("yccd") or q.get("yccd", ""),
+                    "muc_do": item.get("muc_do") or q.get("muc_do", ""),
+                    "nang_luc": item.get("thanh_phan_nang_luc") or q.get("thanh_phan_nang_luc", ""),
                     "dung": bool(item.get("dung_toan_cau"))
                 }]
 
@@ -13704,8 +13707,8 @@ def _gv_tong_hop_lop_nhe(lop_chon):
         for item in lan.get("chi_tiet", []) or []:
             q = item.get("cau_snapshot", {}) or {}
             dang = str(item.get("dang_cau", q.get("dang_cau", "")) or "").strip()
-            bai = str(q.get("bai", "") or "").strip()
-            chuong = str(q.get("chuong", "") or "").strip()
+            bai = str(item.get("bai") or q.get("bai", "") or "").strip()
+            chuong = str(item.get("chuong") or q.get("chuong", "") or "").strip()
 
             units = item.get("don_vi_danh_gia", []) or []
             if not units:
@@ -23199,12 +23202,108 @@ def luu_lich_su_hoc_sinh(ds):
     return _luu_attempts_shared(ds)
 
 
+def _ban_ghi_gon_cho_cloud(ban_ghi):
+    """
+    Tạo bản ghi nhẹ để lưu Supabase.
+
+    Bản đầy đủ trong session_state vẫn giữ nguyên để HS xem lời giải ngay sau khi nộp.
+    Trên cloud chỉ lưu id câu + kết quả + metadata đánh giá; KHÔNG lặp lại toàn bộ
+    nội dung câu hỏi trong ``cau_snapshot`` ở mỗi lượt làm.
+    """
+    out = copy.deepcopy(dict(ban_ghi or {}))
+    chi_tiet_gon = []
+    for item in list(out.get("chi_tiet", []) or []):
+        if not isinstance(item, dict):
+            continue
+        item2 = dict(item)
+        item2.pop("cau_snapshot", None)
+        chi_tiet_gon.append(item2)
+    out["chi_tiet"] = chi_tiet_gon
+    out["storage_version"] = 2
+    return out
+
+
 def them_luot_lam_hoc_sinh(ban_ghi):
-    """Ghi đúng 1 lượt làm; không tải/ghi lại lịch sử toàn trường."""
+    """Ghi đúng 1 lượt làm; cloud dùng bản gọn để giảm mạnh Egress/Database Size."""
     return _fast_append_attempt(
-        ban_ghi,
+        _ban_ghi_gon_cho_cloud(ban_ghi),
         local_history_path=HS_HISTORY_PATH
     )
+
+
+def _khoi_phuc_cau_hoi_tu_luot(lan):
+    """Khôi phục câu hỏi theo cau_id khi cần xem lại bài cũ.
+
+    - Lượt cũ có cau_snapshot: dùng ngay, không gọi mạng.
+    - Lượt mới bản gọn: chỉ SELECT đúng các question_id cần xem từ questions_v2.
+    - Nếu còn thiếu, thử file local của kho chung/kho tốt nghiệp (0 Egress).
+    """
+    chi_tiet = list((lan or {}).get("chi_tiet", []) or [])
+    by_id = {}
+    ids_thieu = []
+
+    for item in chi_tiet:
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("cau_id", "") or "").strip()
+        snap = item.get("cau_snapshot", {}) or {}
+        if cid and isinstance(snap, dict) and snap:
+            by_id[cid] = snap
+        elif cid:
+            ids_thieu.append(cid)
+
+    ids_thieu = list(dict.fromkeys(ids_thieu))
+    if ids_thieu:
+        try:
+            for q in _fast_get_questions_v2_by_ids(ids_thieu) or []:
+                qid = str(q.get("id", "") or "").strip()
+                if qid:
+                    by_id[qid] = q
+        except Exception:
+            pass
+
+    con_thieu = [cid for cid in ids_thieu if cid not in by_id]
+    if con_thieu:
+        try:
+            for path in (BANK_PATH, GRAD_REAL_BANK_PATH, EXAM_PATH):
+                ds = _doc_json_local(path, [])
+                if not isinstance(ds, list):
+                    continue
+                for q in ds:
+                    if not isinstance(q, dict):
+                        continue
+                    qid = str(q.get("id", "") or "").strip()
+                    if qid and qid in con_thieu and qid not in by_id:
+                        by_id[qid] = q
+        except Exception:
+            pass
+
+    ordered = []
+    for item in chi_tiet:
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("cau_id", "") or "").strip()
+        snap = item.get("cau_snapshot", {}) or {}
+        q = snap if isinstance(snap, dict) and snap else by_id.get(cid, {})
+        if q:
+            ordered.append(q)
+    return ordered
+
+
+def _khoi_phuc_snapshot_cho_luot(lan):
+    """Trả bản sao lượt làm có gắn lại snapshot chỉ khi UI thực sự cần xem đáp án."""
+    out = copy.deepcopy(dict(lan or {}))
+    ds_q = _khoi_phuc_cau_hoi_tu_luot(out)
+    by_id = {str(q.get("id", "") or "").strip(): q for q in ds_q if isinstance(q, dict)}
+    for item in list(out.get("chi_tiet", []) or []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("cau_snapshot"):
+            continue
+        cid = str(item.get("cau_id", "") or "").strip()
+        if cid in by_id:
+            item["cau_snapshot"] = by_id[cid]
+    return out
 
 
 def lay_lich_su_cua_hoc_sinh(hoc_sinh_id):
@@ -25001,8 +25100,8 @@ def hoc_sinh():
             CHE_DO_DE_GV,
             "📈 Lịch sử & tiến bộ",
         }
+        can_goi_y_nhe = che_do == "🎯 Luyện theo gợi ý hôm nay"
         can_bank_day_du = che_do in {
-            "🎯 Luyện theo gợi ý hôm nay",
             CHE_DO_DE_GV,
             CHE_DO_KIEM_TRA_MA_TRAN,
         }
@@ -25026,6 +25125,32 @@ def hoc_sinh():
             # STAGE 10: menu lấy từ KHO_YCCD local — 0 truy vấn Supabase.
             bank = doc_chi_muc_ngan_hang_hs_fast(hs_khoi_query)
             st.caption("⚡ Màn hình chọn Bài/Chương mở từ dữ liệu YCCĐ cục bộ; **chưa tải câu hỏi**.")
+
+        elif can_goi_y_nhe:
+            # EGRESS FIX: chỉ tải câu thuộc các YCCĐ đang cần củng cố,
+            # không tải toàn bộ questions_v2 của cả khối.
+            muc_tieu_nhe = tom_tat_diem_yeu(profile, 12) if profile else []
+            yccds_nhe = []
+            seen_yccd = set()
+            for x in muc_tieu_nhe:
+                y = str((x or {}).get("yccd", "") or "").strip()
+                if y and y not in seen_yccd:
+                    seen_yccd.add(y)
+                    yccds_nhe.append(y)
+            if yccds_nhe:
+                try:
+                    bank_on_tap_hs_fast = _fast_get_questions_v2_by_yccds(
+                        khoi=hs_khoi_query,
+                        yccds=yccds_nhe,
+                        limit=250,
+                    ) or []
+                except Exception:
+                    bank_on_tap_hs_fast = []
+            bank = [
+                q for q in bank_on_tap_hs_fast
+                if q.get("trang_thai", "Đã duyệt") not in {"Ngừng sử dụng", "Thiếu đáp án", "Cần GV xem"}
+                and q.get("duoc_dung_luyen_hs", True)
+            ]
 
         elif can_bank_day_du:
             bank_on_tap_hs_fast = doc_ngan_hang_hs_fast(hs_khoi_query)
@@ -25595,16 +25720,19 @@ def hoc_sinh():
                                 use_container_width=True,
                                 key=f"hs_matrix_review_{dot_id}"
                             ):
-                                de_da_lam = [
-                                    (x.get("cau_snapshot", {}) or {})
-                                    for x in (luot_da_nop.get("chi_tiet", []) or [])
-                                    if x.get("cau_snapshot")
-                                ]
+                                luot_xem_lai = _khoi_phuc_snapshot_cho_luot(luot_da_nop)
+                                de_da_lam = _khoi_phuc_cau_hoi_tu_luot(luot_xem_lai)
+                                if not de_da_lam:
+                                    st.error(
+                                        "Không khôi phục được nội dung câu hỏi của lượt này. "
+                                        "Điểm và chi tiết đúng/sai vẫn được giữ nguyên."
+                                    )
+                                    st.stop()
                                 st.session_state.hs_de_thi = de_da_lam
                                 st.session_state.hs_dang_lam = True
                                 st.session_state.hs_da_nop = True
                                 st.session_state.hs_da_luu_ket_qua = True
-                                st.session_state.hs_ban_ghi_hien_tai = luot_da_nop
+                                st.session_state.hs_ban_ghi_hien_tai = luot_xem_lai
                                 st.session_state.hs_che_do_hien_tai = CHE_DO_KIEM_TRA_MA_TRAN
                                 st.session_state.hs_pham_vi_hien_tai = luot_da_nop.get("pham_vi", {}) or {}
                                 st.session_state.hs_ten_luot = luot_da_nop.get("ten_luot", "Kiểm tra")
@@ -26590,6 +26718,14 @@ def hoc_sinh():
                 "dung_toan_cau": dung_toan_cau,
                 "diem_cau": diem_cau,
                 "don_vi_danh_gia": units,
+                # Metadata nhẹ giúp thống kê không cần mở lại nội dung câu hỏi.
+                "khoi": q.get("khoi", ""),
+                "chuong": q.get("chuong", ""),
+                "bai": q.get("bai", ""),
+                "yccd": q.get("yccd", ""),
+                "muc_do": q.get("muc_do", ""),
+                "thanh_phan_nang_luc": q.get("thanh_phan_nang_luc", ""),
+                # Chỉ giữ snapshot trong phiên hiện tại. Hàm lưu cloud sẽ loại trường này.
                 "cau_snapshot": q
             })
 
